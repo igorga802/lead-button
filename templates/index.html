@@ -11,12 +11,15 @@
   <div class="lb-header"><img src="{{ url_for('static', filename='logo.png') }}" alt="ETALIST"></div>
   <div class="lb-container">
     <h1>Получить лид</h1>
+    <p class="lb-availability" style="margin-top:-12px;">
+      Вы вошли как <strong>{{ user_name }}</strong> · <a href="/logout">выйти</a>
+    </p>
     <div id="app"></div>
   </div>
 
   <script src="{{ url_for('static', filename='app.js') }}"></script>
   <script>
-    LeadButton.renderGetLeadPage(document.getElementById('app'), {{ users | tojson }});
+    LeadButton.renderGetLeadPage(document.getElementById('app'));
   </script>
 </body>
 </html>

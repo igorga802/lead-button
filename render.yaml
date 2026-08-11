@@ -10,9 +10,13 @@ services:
         sync: false
       - key: AMOCRM_TOKEN
         sync: false
-      - key: LEAD_BUTTON_USER
+      - key: AMOCRM_OAUTH_CLIENT_ID
         sync: false
-      - key: LEAD_BUTTON_PASS
+      - key: AMOCRM_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: AMOCRM_OAUTH_REDIRECT_URI
+        sync: false
+      - key: FLASK_SECRET_KEY
         sync: false
       - key: LEAD_BUTTON_ADMIN_USER
         sync: false

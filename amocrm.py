@@ -4,6 +4,8 @@
 (создаётся в AmoCRM: Настройки → Интеграции → «+ Создать интеграцию» →
 Внешняя интеграция → «Ключи и доступы» → «Сгенерировать токен»).
 """
+import base64
+import json
 import os
 import time
 
@@ -202,3 +204,50 @@ def custom_field_num(entity, field_id):
 
 def build_custom_field(field_id, value):
     return {'field_id': field_id, 'values': [{'value': value}]}
+
+
+# ─── OAuth-вход менеджера (кто именно нажал кнопку) ─────────────────────
+# Отдельная интеграция от AMOCRM_TOKEN (тот — сервисный, для чтения/записи
+# сделок от лица бэкенда; этот — только чтобы один раз при входе узнать,
+# какой реальный пользователь AmoCRM сейчас перед нами, через его же логин).
+
+def oauth_exchange_code(client_id, client_secret, redirect_uri, code):
+    """Обменивает код авторизации (после логина менеджера на стороне AmoCRM)
+    на access_token. Возвращает dict {access_token, refresh_token, expires_in, ...}."""
+    sub = os.environ.get('AMOCRM_SUBDOMAIN', '').strip()
+    if not sub:
+        raise AmoCRMError('AMOCRM_SUBDOMAIN не задан в env')
+    url = f'https://{sub}.amocrm.ru/oauth2/access_token'
+    r = requests.post(url, json={
+        'client_id': client_id,
+        'client_secret': client_secret,
+        'grant_type': 'authorization_code',
+        'code': code,
+        'redirect_uri': redirect_uri,
+    }, timeout=HTTP_TIMEOUT)
+    if r.status_code >= 400:
+        raise AmoCRMError(f'oauth2/access_token → HTTP {r.status_code}: {r.text[:300]}')
+    return r.json()
+
+
+def decode_jwt_user_id(jwt_token):
+    """Достаёт user_id (claim `sub`) из access_token, полученного напрямую от
+    AmoCRM по HTTPS в oauth_exchange_code — подпись отдельно не проверяем,
+    источник токена уже доверенный (не принят от браузера/клиента).
+    Возвращает int или None, если структура токена не как ожидалось —
+    вызывающий код обязан дополнительно сверить результат со списком
+    реальных пользователей аккаунта (fetch_users), не доверять вслепую."""
+    parts = jwt_token.split('.')
+    if len(parts) != 3:
+        return None
+    payload = parts[1]
+    padded = payload + '=' * (-len(payload) % 4)
+    try:
+        claims = json.loads(base64.urlsafe_b64decode(padded))
+    except (ValueError, TypeError):
+        return None
+    sub = claims.get('sub')
+    try:
+        return int(sub) if sub is not None else None
+    except (TypeError, ValueError):
+        return None

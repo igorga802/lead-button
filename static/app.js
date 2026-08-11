@@ -43,35 +43,20 @@
     missing_user_id: 'Не удалось определить пользователя.',
   };
 
-  var LAST_USER_KEY = 'lead_button_last_user';
-
   // ─── Страница «Получить лид» ────────────────────────────────────────
-  function renderGetLeadPage(container, users) {
-    var savedUser = localStorage.getItem(LAST_USER_KEY) || '';
-
-    var select = el('select', {});
-    select.appendChild(el('option', { value: '', text: '— выберите себя —' }));
-    users.forEach(function (u) {
-      var opt = el('option', { value: u.id, text: u.name });
-      if (String(u.id) === savedUser) opt.selected = true;
-      select.appendChild(opt);
-    });
-
+  // Кто именно нажимает — сервер уже знает из сессии (вход через OAuth
+  // AmoCRM на /login), поэтому здесь никакого выбора пользователя и
+  // никакого user_id в запросах — только сам факт клика.
+  function renderGetLeadPage(container) {
     var btn = el('button', { text: 'Получить лид' });
-    btn.disabled = true; // включится после того, как узнаем статус выбранного пользователя
+    btn.disabled = true; // включится после того, как узнаем статус
 
     var availabilityBox = el('div', { class: 'lb-availability' });
     var status = el('div', { class: 'lb-status' });
 
     function refreshAvailability() {
-      var userId = select.value;
-      if (!userId) {
-        availabilityBox.textContent = '';
-        btn.disabled = true;
-        return;
-      }
       availabilityBox.textContent = 'Загрузка…';
-      api('/api/status', 'POST', { user_id: parseInt(userId, 10) }).then(function (res) {
+      api('/api/status', 'POST').then(function (res) {
         var d = res.data;
         if (d.ok) {
           availabilityBox.textContent =
@@ -86,19 +71,12 @@
       });
     }
 
-    select.addEventListener('change', refreshAvailability);
-    if (savedUser) refreshAvailability();
+    refreshAvailability();
 
     btn.addEventListener('click', function () {
-      var userId = select.value;
-      if (!userId) {
-        status.textContent = 'Сначала выберите себя из списка.';
-        return;
-      }
-      localStorage.setItem(LAST_USER_KEY, userId);
       btn.disabled = true;
       status.textContent = 'Запрашиваю…';
-      api('/api/get-lead', 'POST', { user_id: parseInt(userId, 10) })
+      api('/api/get-lead', 'POST')
         .then(function (res) {
           var d = res.data;
           if (d.ok) {
@@ -118,7 +96,7 @@
         });
     });
 
-    container.appendChild(el('div', { class: 'lb-row' }, [select, btn]));
+    container.appendChild(el('div', { class: 'lb-row' }, [btn]));
     container.appendChild(availabilityBox);
     container.appendChild(status);
   }
