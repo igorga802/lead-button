@@ -55,19 +55,12 @@
     var status = el('div', { class: 'lb-status' });
 
     function refreshAvailability() {
-      availabilityBox.innerHTML = 'Загрузка…';
       api('/api/status', 'POST').then(function (res) {
         var d = res.data;
         availabilityBox.innerHTML = '';
         if (d.ok) {
-          // У менеджера может быть несколько групп — у каждой свой отдельный
-          // остаток лимита, поэтому строка на группу, не одна общая.
-          d.groups.forEach(function (g) {
-            availabilityBox.appendChild(el('div', {
-              text: 'Группа «' + g.group + '» · доступно лидов: ' + g.available_leads +
-                ' · остаток лимита в этом месяце: ' + g.remaining + ' из ' + g.limit,
-            }));
-          });
+          // Менеджеру детали по группам/лимитам не показываем — только
+          // управляем доступностью самой кнопки.
           var anyReady = d.groups.some(function (g) { return g.available_leads > 0 && g.remaining > 0; });
           btn.disabled = !anyReady;
         } else {
