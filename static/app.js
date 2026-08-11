@@ -89,9 +89,7 @@
             } else {
               status.appendChild(el('strong', { text: d.lead_name || ('#' + d.lead_id) }));
             }
-            status.appendChild(el('span', {
-              text: ' (группа «' + d.group + '», выдано ' + d.count + '/' + d.limit + ' в этом месяце).',
-            }));
+            status.appendChild(el('span', { text: '.' }));
           } else {
             status.textContent = RESULT_MESSAGES[d.error || d.reason] ||
               ('Не удалось получить лид (' + (d.error || d.reason) + ').');
