@@ -1,0 +1,40 @@
+services:
+  - type: web
+    name: lead-button
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn -w 1 --timeout 60 -b 0.0.0.0:$PORT app:app
+    envVars:
+      - key: AMOCRM_SUBDOMAIN
+        sync: false
+      - key: AMOCRM_TOKEN
+        sync: false
+      - key: WIDGET_SHARED_SECRET
+        sync: false
+      - key: LEAD_BUTTON_CATALOG_GROUPS_ID
+        sync: false
+      - key: LEAD_BUTTON_FIELD_GROUP_TAG
+        sync: false
+      - key: LEAD_BUTTON_FIELD_GROUP_MEMBERS
+        sync: false
+      - key: LEAD_BUTTON_FIELD_GROUP_ACTIVE
+        sync: false
+      - key: LEAD_BUTTON_CATALOG_COUNTERS_ID
+        sync: false
+      - key: LEAD_BUTTON_FIELD_COUNTER_USER_ID
+        sync: false
+      - key: LEAD_BUTTON_FIELD_COUNTER_MONTH
+        sync: false
+      - key: LEAD_BUTTON_FIELD_COUNTER_COUNT
+        sync: false
+      - key: LEAD_BUTTON_CATALOG_SETTINGS_ID
+        sync: false
+      - key: LEAD_BUTTON_FIELD_SETTINGS_SOURCE_PIPELINE
+        sync: false
+      - key: LEAD_BUTTON_FIELD_SETTINGS_SOURCE_STATUS
+        sync: false
+      - key: LEAD_BUTTON_FIELD_SETTINGS_TARGET_PIPELINE
+        sync: false
+      - key: LEAD_BUTTON_FIELD_SETTINGS_TARGET_STATUS
+        sync: false
