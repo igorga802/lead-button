@@ -59,10 +59,13 @@
         var d = res.data;
         availabilityBox.innerHTML = '';
         if (d.ok) {
-          // Менеджеру детали по группам/лимитам не показываем — только
-          // управляем доступностью самой кнопки.
-          var anyReady = d.groups.some(function (g) { return g.available_leads > 0 && g.remaining > 0; });
-          btn.disabled = !anyReady;
+          // Менеджеру не показываем разбивку по группам/тирам — только общее
+          // число реально доступных лидов (с учётом остатка лимита).
+          var total = d.groups.reduce(function (sum, g) {
+            return sum + (g.remaining > 0 ? Math.min(g.available_leads, g.remaining) : 0);
+          }, 0);
+          availabilityBox.appendChild(el('div', { text: 'Доступно лидов: ' + total }));
+          btn.disabled = total <= 0;
         } else {
           availabilityBox.appendChild(el('div', {
             text: RESULT_MESSAGES[d.error || d.reason] || ('Недоступно (' + (d.error || d.reason) + ').'),
