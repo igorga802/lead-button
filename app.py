@@ -184,6 +184,9 @@ def api_get_lead():
     except amocrm.AmoCRMError as e:
         return jsonify({'ok': False, 'error': 'amocrm_error', 'detail': str(e)}), 502
 
+    if result.get('ok') and result.get('lead_id') and AMOCRM_SUBDOMAIN:
+        result['lead_url'] = f'https://{AMOCRM_SUBDOMAIN}.amocrm.ru/leads/detail/{result["lead_id"]}'
+
     return jsonify(result)
 
 

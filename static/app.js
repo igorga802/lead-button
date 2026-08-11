@@ -80,9 +80,18 @@
         .then(function (res) {
           var d = res.data;
           if (d.ok) {
-            status.textContent =
-              'Вам назначен лид «' + (d.lead_name || d.lead_id) + '» ' +
-              '(группа «' + d.group + '», выдано ' + d.count + '/' + d.limit + ' в этом месяце).';
+            status.innerHTML = '';
+            status.appendChild(el('span', { text: 'Вам назначен лид ' }));
+            if (d.lead_url) {
+              status.appendChild(el('a', {
+                text: d.lead_name || ('#' + d.lead_id), href: d.lead_url, target: '_blank', rel: 'noopener',
+              }));
+            } else {
+              status.appendChild(el('strong', { text: d.lead_name || ('#' + d.lead_id) }));
+            }
+            status.appendChild(el('span', {
+              text: ' (группа «' + d.group + '», выдано ' + d.count + '/' + d.limit + ' в этом месяце).',
+            }));
           } else {
             status.textContent = RESULT_MESSAGES[d.error || d.reason] ||
               ('Не удалось получить лид (' + (d.error || d.reason) + ').');
