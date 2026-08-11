@@ -49,7 +49,7 @@
   function renderGetLeadPage(container, users) {
     var savedUser = localStorage.getItem(LAST_USER_KEY) || '';
 
-    var select = el('select', { style: 'font-size:15px;padding:8px;' });
+    var select = el('select', {});
     select.appendChild(el('option', { value: '', text: '— выберите себя —' }));
     users.forEach(function (u) {
       var opt = el('option', { value: u.id, text: u.name });
@@ -57,14 +57,11 @@
       select.appendChild(opt);
     });
 
-    var btn = el('button', {
-      text: 'Получить лид',
-      style: 'padding:10px 24px;font-size:15px;margin-left:12px;cursor:pointer;',
-    });
+    var btn = el('button', { text: 'Получить лид' });
     btn.disabled = true; // включится после того, как узнаем статус выбранного пользователя
 
-    var availabilityBox = el('div', { style: 'margin-top:14px;font-size:14px;color:#444;' });
-    var status = el('div', { style: 'margin-top:16px;font-size:14px;' });
+    var availabilityBox = el('div', { class: 'lb-availability' });
+    var status = el('div', { class: 'lb-status' });
 
     function refreshAvailability() {
       var userId = select.value;
@@ -121,7 +118,7 @@
         });
     });
 
-    container.appendChild(el('div', {}, [select, btn]));
+    container.appendChild(el('div', { class: 'lb-row' }, [select, btn]));
     container.appendChild(availabilityBox);
     container.appendChild(status);
   }
@@ -130,7 +127,7 @@
   function renderFunnelBox(state) {
     function pipelinePicker(pipelineKey, statusKey, label) {
       var pipelineSelect = el('select', {});
-      var statusSelect = el('select', { style: 'margin-left:8px;' });
+      var statusSelect = el('select', {});
 
       function fillStatuses(pipelineId) {
         statusSelect.innerHTML = '';
@@ -161,14 +158,14 @@
 
       if (state.funnel[pipelineKey]) fillStatuses(state.funnel[pipelineKey]);
 
-      return el('div', { style: 'margin:6px 0;' }, [
-        el('span', { text: label + ': ', style: 'display:inline-block;width:170px;' }),
+      return el('div', { class: 'lb-funnel-row' }, [
+        el('span', { text: label + ': ', class: 'lb-label' }),
         pipelineSelect, statusSelect,
       ]);
     }
 
     return el('div', {}, [
-      el('div', { text: 'Воронка и этапы', style: 'font-weight:bold;margin-bottom:6px;' }),
+      el('h2', { text: 'Воронка и этапы' }),
       pipelinePicker('source_pipeline', 'source_status', 'Источник (откуда берём)'),
       pipelinePicker('target_pipeline', 'target_status', 'Назначение (куда переносим)'),
     ]);
@@ -224,21 +221,21 @@
         var membersById = {};
         (group.members || []).forEach(function (m) { membersById[m.user_id] = m; });
 
-        var usersBox = el('div', { style: 'margin:8px 0 8px 16px;' });
+        var usersBox = el('div', { class: 'lb-users' });
         state.users.forEach(function (u) {
           var existing = membersById[u.id];
           var checkbox = el('input', { type: 'checkbox' });
           checkbox.checked = !!existing;
 
           var limitInput = el('input', {
-            type: 'number', min: '0', style: 'width:70px;margin-left:8px;',
+            type: 'number', min: '0', style: 'width:70px;',
             value: existing ? existing.limit : 0,
           });
           limitInput.disabled = !existing;
 
           var countLabel = el('span', {
-            text: existing && existing.count != null ? ' (нажато: ' + existing.count + ')' : '',
-            style: 'color:#888;margin-left:8px;',
+            text: existing && existing.count != null ? '(нажато: ' + existing.count + ')' : '',
+            class: 'lb-count',
           });
 
           checkbox.addEventListener('change', function () {
@@ -255,15 +252,15 @@
             group.members = members;
           }
 
-          usersBox.appendChild(el('div', { style: 'margin:2px 0;' }, [
-            checkbox, el('span', { text: ' ' + u.name, style: 'margin-left:4px;' }), limitInput, countLabel,
+          usersBox.appendChild(el('div', {}, [
+            checkbox, el('span', { text: u.name }), limitInput, countLabel,
           ]));
         });
 
-        return el('div', { style: 'border:1px solid #ddd;border-radius:6px;padding:12px;margin-bottom:12px;' }, [
-          el('div', { style: 'display:flex;gap:12px;align-items:center;' }, [
+        return el('div', { class: 'lb-group' }, [
+          el('div', { class: 'lb-group-head' }, [
             nameInput, tagSelect,
-            el('label', { style: 'margin-left:auto;' }, [activeCheckbox, el('span', { text: ' активна' })]),
+            el('label', {}, [activeCheckbox, el('span', { text: 'активна' })]),
           ]),
           usersBox,
         ]);
@@ -273,14 +270,15 @@
 
       var addBtn = el('button', {
         text: '+ Добавить группу',
-        style: 'margin:8px 0;',
+        class: 'lb-secondary',
+        style: 'margin-bottom:16px;',
         onclick: function () {
           state.groups.push({ name: '', tag: '', active: true, members: [] });
           renderGroups();
         },
       });
 
-      var saveStatus = el('span', { style: 'margin-left:12px;' });
+      var saveStatus = el('span', { class: 'lb-status', style: 'margin-left:12px;' });
       var saveBtn = el('button', {
         text: 'Сохранить',
         onclick: function () {

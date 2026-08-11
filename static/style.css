@@ -1,0 +1,100 @@
+/* Фирменный стиль ETALIST (снято с etalist.ru): тёмно-синий #1A1E29,
+   светлый #F9F9F9, шрифт Manrope, кнопки-таблетки со скруглением 30px. */
+
+:root {
+  --lb-dark: #1A1E29;
+  --lb-light: #F9F9F9;
+  --lb-white: #FFFFFF;
+  --lb-border: #E3E3E6;
+  --lb-muted: #6B6F7B;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: 'Manrope', Arial, sans-serif;
+  background: var(--lb-light);
+  color: var(--lb-dark);
+  margin: 0;
+  min-height: 100vh;
+}
+
+.lb-header {
+  background: var(--lb-dark);
+  padding: 20px 24px;
+  display: flex;
+  align-items: center;
+}
+.lb-header img { height: 32px; display: block; }
+
+.lb-container {
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 40px 24px 60px;
+}
+.lb-container.wide { max-width: 760px; }
+
+h1 {
+  font-size: 22px;
+  font-weight: 600;
+  margin: 0 0 24px;
+}
+h2 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0 0 10px;
+}
+
+a { color: var(--lb-dark); }
+
+select, input[type=text], input[type=number] {
+  font-family: 'Manrope', Arial, sans-serif;
+  font-size: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--lb-border);
+  border-radius: 10px;
+  background: var(--lb-white);
+  color: var(--lb-dark);
+}
+
+button, .lb-btn {
+  font-family: 'Manrope', Arial, sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 11px 26px;
+  border: none;
+  border-radius: 30px;
+  background: var(--lb-dark);
+  color: var(--lb-light);
+  cursor: pointer;
+}
+button:disabled { background: #A9ACB5; cursor: not-allowed; }
+button:hover:not(:disabled) { opacity: .9; }
+
+.lb-secondary {
+  background: transparent;
+  color: var(--lb-dark);
+  border: 1px solid var(--lb-border);
+}
+
+.lb-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.lb-availability { margin-top: 16px; font-size: 14px; color: var(--lb-muted); }
+.lb-status { margin-top: 16px; font-size: 14px; }
+
+.lb-group {
+  border: 1px solid var(--lb-border);
+  border-radius: 14px;
+  padding: 16px;
+  margin-bottom: 14px;
+  background: var(--lb-white);
+}
+.lb-group-head { display: flex; gap: 12px; align-items: center; }
+.lb-group-head label { margin-left: auto; font-size: 14px; display: flex; align-items: center; gap: 6px; }
+.lb-users { margin: 10px 0 0 16px; }
+.lb-users > div { margin: 4px 0; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+.lb-count { color: var(--lb-muted); }
+
+.lb-funnel-row { margin: 8px 0; display: flex; align-items: center; gap: 8px; }
+.lb-funnel-row .lb-label { display: inline-block; width: 190px; font-size: 14px; color: var(--lb-muted); }
+
+hr { border: none; border-top: 1px solid var(--lb-border); margin: 24px 0; }

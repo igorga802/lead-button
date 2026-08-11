@@ -2,17 +2,17 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<title>Получить лид</title>
-<style>
-  body { font-family: -apple-system, "Segoe UI", sans-serif; max-width: 480px; margin: 60px auto; padding: 0 20px; }
-  h1 { font-size: 22px; }
-  a { color: #2864ff; }
-  #app { margin-top: 24px; }
-</style>
+<title>Получить лид — ETALIST</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&subset=latin,cyrillic" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-  <h1>Получить лид</h1>
-  <div id="app"></div>
+  <div class="lb-header"><img src="{{ url_for('static', filename='logo.png') }}" alt="ETALIST"></div>
+  <div class="lb-container">
+    <h1>Получить лид</h1>
+    <div id="app"></div>
+  </div>
 
   <script src="{{ url_for('static', filename='app.js') }}"></script>
   <script>
