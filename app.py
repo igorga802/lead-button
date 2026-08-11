@@ -50,8 +50,12 @@ OAUTH_CLIENT_SECRET = os.environ.get('AMOCRM_OAUTH_CLIENT_SECRET', '').strip()
 OAUTH_REDIRECT_URI = os.environ.get('AMOCRM_OAUTH_REDIRECT_URI', '').strip()
 AMOCRM_SUBDOMAIN = os.environ.get('AMOCRM_SUBDOMAIN', '').strip()
 
-LEAD_BUTTON_ADMIN_USER = os.environ.get('LEAD_BUTTON_ADMIN_USER', 'admin')
+LEAD_BUTTON_ADMIN_USER = os.environ.get('LEAD_BUTTON_ADMIN_USER', 'admin').strip()
 LEAD_BUTTON_ADMIN_PASS = os.environ.get('LEAD_BUTTON_ADMIN_PASS')
+if LEAD_BUTTON_ADMIN_PASS is not None:
+    # Частая история со вставкой в веб-формы (Render и т.п.) — лишний перевод
+    # строки/пробел на конце из буфера обмена молча ломает сравнение.
+    LEAD_BUTTON_ADMIN_PASS = LEAD_BUTTON_ADMIN_PASS.strip()
 if not LEAD_BUTTON_ADMIN_PASS:
     LEAD_BUTTON_ADMIN_PASS = 'changeme'
     print('⚠️  LEAD_BUTTON_ADMIN_PASS env var not set — using default "changeme". '
