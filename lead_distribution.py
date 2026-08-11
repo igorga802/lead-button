@@ -133,6 +133,19 @@ def _find_group_for_user(groups, user_id):
 
 # ─── Счётчики ───────────────────────────────────────────────────────────
 
+def _read_counter(user_id, month_str):
+    """Только чтение — сколько уже выдано в этом месяце, 0 если записи ещё
+    нет. В отличие от `_get_or_create_counter` ничего не создаёт в AmoCRM —
+    для статуса «сколько доступно» до нажатия кнопки лишний элемент не нужен."""
+    elements = amocrm.fetch_catalog_elements(CATALOG_COUNTERS_ID)
+    for el in elements:
+        el_user = amocrm.custom_field_text(el, FIELD_COUNTER_USER_ID)
+        el_month = amocrm.custom_field_text(el, FIELD_COUNTER_MONTH)
+        if el_user == str(user_id) and el_month == month_str:
+            return int(amocrm.custom_field_num(el, FIELD_COUNTER_COUNT))
+    return 0
+
+
 def _get_or_create_counter(user_id, month_str):
     """Элемент-счётчик (user_id × месяц). Создаёт с нулём, если ещё нет.
     Возвращает (element, count)."""
@@ -260,6 +273,42 @@ def save_groups(groups_payload):
             amocrm.create_catalog_element(
                 CATALOG_GROUPS_ID, name=g.get('name') or 'Группа', custom_fields_values=cfs
             )
+
+
+def get_status_for_manager(user_id):
+    """Только чтение — сколько лидов реально доступно и сколько осталось
+    лимита, для отображения на странице ДО нажатия кнопки (ничего не
+    назначает, не трогает счётчик).
+
+    Возвращает dict:
+      {'ok': True, 'group': ..., 'available_leads': N, 'limit': L, 'used': C, 'remaining': L-C}
+      {'ok': False, 'reason': 'not_allowed' | 'funnel_not_configured'}
+    """
+    _require_config()
+
+    funnel = _load_funnel_settings()
+    if not all(funnel.values()):
+        return {'ok': False, 'reason': 'funnel_not_configured'}
+
+    groups = _load_groups()
+    group, limit = _find_group_for_user(groups, user_id)
+    if group is None:
+        return {'ok': False, 'reason': 'not_allowed'}
+
+    month_str = _current_month_msk()
+    count = _read_counter(user_id, month_str)
+
+    candidates = amocrm.fetch_unassigned_leads(funnel['source_pipeline'], funnel['source_status'])
+    available = sum(1 for c in candidates if group['tag'] in amocrm.lead_tag_names(c))
+
+    return {
+        'ok': True,
+        'group': group['name'],
+        'available_leads': available,
+        'limit': limit,
+        'used': count,
+        'remaining': max(0, limit - count),
+    }
 
 
 # ─── Основной сценарий ──────────────────────────────────────────────────

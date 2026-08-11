@@ -61,7 +61,36 @@
       text: 'Получить лид',
       style: 'padding:10px 24px;font-size:15px;margin-left:12px;cursor:pointer;',
     });
+    btn.disabled = true; // включится после того, как узнаем статус выбранного пользователя
+
+    var availabilityBox = el('div', { style: 'margin-top:14px;font-size:14px;color:#444;' });
     var status = el('div', { style: 'margin-top:16px;font-size:14px;' });
+
+    function refreshAvailability() {
+      var userId = select.value;
+      if (!userId) {
+        availabilityBox.textContent = '';
+        btn.disabled = true;
+        return;
+      }
+      availabilityBox.textContent = 'Загрузка…';
+      api('/api/status', 'POST', { user_id: parseInt(userId, 10) }).then(function (res) {
+        var d = res.data;
+        if (d.ok) {
+          availabilityBox.textContent =
+            'Группа «' + d.group + '» · доступно лидов: ' + d.available_leads +
+            ' · остаток лимита в этом месяце: ' + d.remaining + ' из ' + d.limit;
+          btn.disabled = d.available_leads <= 0 || d.remaining <= 0;
+        } else {
+          availabilityBox.textContent = RESULT_MESSAGES[d.error || d.reason] ||
+            ('Недоступно (' + (d.error || d.reason) + ').');
+          btn.disabled = true;
+        }
+      });
+    }
+
+    select.addEventListener('change', refreshAvailability);
+    if (savedUser) refreshAvailability();
 
     btn.addEventListener('click', function () {
       var userId = select.value;
@@ -87,10 +116,13 @@
         .catch(function () {
           status.textContent = 'Не удалось связаться с сервером. Попробуйте позже.';
         })
-        .finally(function () { btn.disabled = false; });
+        .finally(function () {
+          refreshAvailability(); // обновить счётчики после попытки, кнопка сама включится/выключится
+        });
     });
 
     container.appendChild(el('div', {}, [select, btn]));
+    container.appendChild(availabilityBox);
     container.appendChild(status);
   }
 

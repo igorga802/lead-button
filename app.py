@@ -1,15 +1,21 @@
 """Бэкенд + веб-страница кнопки «Получить лид» — отдельный сервис, не зависит
 от дашборда.
 
-Обычное веб-приложение за HTTP Basic Auth (один общий логин/пароль на всех
-менеджеров, как в дашборде Dash_Bot_Fork) — не виджет AmoCRM, открывается
-отдельной вкладкой/ссылкой. Менеджер сам выбирает себя из списка на странице.
+Обычное веб-приложение, два уровня HTTP Basic Auth:
+  - LEAD_BUTTON_USER/PASS       — общий логин менеджеров, видят только
+                                   страницу кнопки (сколько лидов доступно + сама кнопка).
+  - LEAD_BUTTON_ADMIN_USER/PASS — отдельный логин для настроек (группы,
+                                   лимиты, воронка) — только владелец/руководители.
+
+Не виджет AmoCRM — открывается отдельной вкладкой/ссылкой. Менеджер сам
+выбирает себя из списка на странице.
 
 Роуты:
-  GET  /                — страница «Получить лид» (дропдаун + кнопка)
-  GET  /settings         — страница настроек (группы, лимиты, воронка)
-  POST /api/get-lead      — нажатие кнопки
-  GET/POST /api/settings  — чтение/сохранение настроек
+  GET  /                  — страница «Получить лид» (менеджерский логин)
+  GET  /settings          — страница настроек (админский логин)
+  POST /api/get-lead       — нажатие кнопки (менеджерский логин)
+  POST /api/status         — сколько доступно/осталось лимита (менеджерский логин)
+  GET/POST /api/settings   — чтение/сохранение настроек (админский логин)
 """
 import os
 import secrets
@@ -25,31 +31,51 @@ import lead_distribution
 
 app = Flask(__name__)
 
-LEAD_BUTTON_USER = os.environ.get('LEAD_BUTTON_USER', 'admin')
-LEAD_BUTTON_PASS = os.environ.get('LEAD_BUTTON_PASS')
-if not LEAD_BUTTON_PASS:
-    LEAD_BUTTON_PASS = 'changeme'
-    print('⚠️  LEAD_BUTTON_PASS env var not set — using default "changeme". '
-          'DO NOT use this in production.')
+
+def _env_credentials(user_key, pass_key, default_user, fallback_pass_warning):
+    user = os.environ.get(user_key, default_user)
+    pw = os.environ.get(pass_key)
+    if not pw:
+        pw = 'changeme'
+        print(f'⚠️  {pass_key} env var not set — using default "changeme". '
+              f'DO NOT use this in production. {fallback_pass_warning}')
+    return user, pw
 
 
-def requires_auth(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        auth = request.authorization
-        ok = False
-        if auth:
-            ok = (
-                secrets.compare_digest(auth.username or '', LEAD_BUTTON_USER) and
-                secrets.compare_digest(auth.password or '', LEAD_BUTTON_PASS)
-            )
-        if not ok:
-            return Response(
-                'Authentication required', 401,
-                {'WWW-Authenticate': 'Basic realm="Lead Button"'}
-            )
-        return f(*args, **kwargs)
-    return decorated
+LEAD_BUTTON_USER, LEAD_BUTTON_PASS = _env_credentials(
+    'LEAD_BUTTON_USER', 'LEAD_BUTTON_PASS', 'manager', '(логин менеджеров)'
+)
+LEAD_BUTTON_ADMIN_USER, LEAD_BUTTON_ADMIN_PASS = _env_credentials(
+    'LEAD_BUTTON_ADMIN_USER', 'LEAD_BUTTON_ADMIN_PASS', 'admin', '(логин настроек)'
+)
+
+
+def _make_auth_decorator(realm, valid_user, valid_pass):
+    def decorator(f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            auth = request.authorization
+            ok = False
+            if auth:
+                ok = (
+                    secrets.compare_digest(auth.username or '', valid_user) and
+                    secrets.compare_digest(auth.password or '', valid_pass)
+                )
+            if not ok:
+                return Response(
+                    'Authentication required', 401,
+                    {'WWW-Authenticate': f'Basic realm="{realm}"'}
+                )
+            return f(*args, **kwargs)
+        return decorated
+    return decorator
+
+
+# Разные "realm" в заголовке — браузер держит для них отдельные сохранённые
+# пароли и не путает менеджерский логин с админским, даже если оба открыты
+# в одной вкладке один за другим.
+requires_auth = _make_auth_decorator('Lead Button', LEAD_BUTTON_USER, LEAD_BUTTON_PASS)
+requires_admin_auth = _make_auth_decorator('Lead Button Admin', LEAD_BUTTON_ADMIN_USER, LEAD_BUTTON_ADMIN_PASS)
 
 
 @app.after_request
@@ -73,7 +99,7 @@ def index():
 
 
 @app.route('/settings')
-@requires_auth
+@requires_admin_auth
 def settings_page():
     return render_template('settings.html')
 
@@ -99,8 +125,29 @@ def api_get_lead():
     return jsonify(result)
 
 
-@app.route('/api/settings', methods=['GET', 'POST'])
+@app.route('/api/status', methods=['POST'])
 @requires_auth
+def api_status():
+    body = request.get_json(silent=True) or {}
+    user_id = body.get('user_id')
+    if not user_id:
+        return jsonify({'ok': False, 'error': 'missing_user_id'}), 400
+
+    try:
+        known_user_ids = {u.get('id') for u in amocrm.fetch_users()}
+        if int(user_id) not in known_user_ids:
+            return jsonify({'ok': False, 'error': 'unknown_user'}), 403
+        result = lead_distribution.get_status_for_manager(int(user_id))
+    except lead_distribution.ConfigError as e:
+        return jsonify({'ok': False, 'error': 'not_configured', 'detail': str(e)}), 503
+    except amocrm.AmoCRMError as e:
+        return jsonify({'ok': False, 'error': 'amocrm_error', 'detail': str(e)}), 502
+
+    return jsonify(result)
+
+
+@app.route('/api/settings', methods=['GET', 'POST'])
+@requires_admin_auth
 def api_settings():
     try:
         if request.method == 'GET':
