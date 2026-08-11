@@ -142,9 +142,25 @@
       ]);
     }
 
+    var responsibleSelect = el('select', {});
+    responsibleSelect.appendChild(el('option', { value: '', text: '— не уточнено, весь статус —' }));
+    state.users.forEach(function (u) {
+      var opt = el('option', { value: u.id, text: u.name });
+      if (u.id === state.funnel.source_responsible) opt.selected = true;
+      responsibleSelect.appendChild(opt);
+    });
+    responsibleSelect.addEventListener('change', function () {
+      state.funnel.source_responsible = responsibleSelect.value ? parseInt(responsibleSelect.value, 10) : null;
+    });
+    var responsibleRow = el('div', { class: 'lb-funnel-row' }, [
+      el('span', { text: 'Забирать у ответственного: ', class: 'lb-label' }),
+      responsibleSelect,
+    ]);
+
     return el('div', {}, [
       el('h2', { text: 'Воронка и этапы' }),
       pipelinePicker('source_pipeline', 'source_status', 'Источник (откуда берём)'),
+      responsibleRow,
       pipelinePicker('target_pipeline', 'target_status', 'Назначение (куда переносим)'),
     ]);
   }

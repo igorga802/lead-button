@@ -46,6 +46,13 @@ FIELD_SETTINGS_SOURCE_PIPELINE = _env_int('LEAD_BUTTON_FIELD_SETTINGS_SOURCE_PIP
 FIELD_SETTINGS_SOURCE_STATUS = _env_int('LEAD_BUTTON_FIELD_SETTINGS_SOURCE_STATUS')
 FIELD_SETTINGS_TARGET_PIPELINE = _env_int('LEAD_BUTTON_FIELD_SETTINGS_TARGET_PIPELINE')
 FIELD_SETTINGS_TARGET_STATUS = _env_int('LEAD_BUTTON_FIELD_SETTINGS_TARGET_STATUS')
+# Необязательное уточнение источника: брать из статуса только сделки, которые
+# сейчас висят на конкретном ответственном (обычно техническом/интеграционном
+# пользователе-боте приёма лидов) — иначе в пул случайно попадают чужие
+# сделки реальных менеджеров, оказавшиеся в том же статусе. Не входит в
+# _require_config — старые инсталляции без этого поля продолжают работать
+# (просто берут статус целиком, как раньше).
+FIELD_SETTINGS_SOURCE_RESPONSIBLE = _env_int('LEAD_BUTTON_FIELD_SETTINGS_SOURCE_RESPONSIBLE')
 
 # AmoCRM живёt по Москве (см. тот же выбор в app.py, MSK_OFFSET) — месяц
 # для лимита/счётчика должен совпадать с тем, что менеджер видит у себя.
@@ -177,27 +184,39 @@ def _increment_counter(element, new_count):
     )
 
 
+def _funnel_is_configured(funnel):
+    """`source_responsible` необязателен — проверяем только 4 обязательных
+    поля, иначе optional-поле ломало бы старые/неполные настройки."""
+    required = ('source_pipeline', 'source_status', 'target_pipeline', 'target_status')
+    return all(funnel.get(k) for k in required)
+
+
 # ─── Настройки воронки (источник/назначение) ────────────────────────────
 # Список «Распределение: настройки» задуман как один элемент-«синглтон»,
 # хранящий 4 числа. Читаем/пишем именно так — без кеша, чтобы правка через
 # экран настроек применялась сразу к следующему клику по кнопке.
 
 def _load_funnel_settings():
-    """Возвращает dict {source_pipeline, source_status, target_pipeline,
-    target_status} — int или None по каждому полю, если ещё не выбрано."""
+    """Возвращает dict {source_pipeline, source_status, source_responsible,
+    target_pipeline, target_status} — int или None по каждому полю, если ещё
+    не выбрано. `source_responsible` необязателен даже когда остальное
+    заполнено — None означает «брать статус целиком, без уточнения»."""
     elements = amocrm.fetch_catalog_elements(CATALOG_SETTINGS_ID)
     el = elements[0] if elements else None
     if not el:
-        return {'source_pipeline': None, 'source_status': None,
+        return {'source_pipeline': None, 'source_status': None, 'source_responsible': None,
                 'target_pipeline': None, 'target_status': None}
 
     def _int_or_none(field_id):
+        if not field_id:
+            return None
         v = amocrm.custom_field_num(el, field_id)
         return int(v) if v else None
 
     return {
         'source_pipeline': _int_or_none(FIELD_SETTINGS_SOURCE_PIPELINE),
         'source_status': _int_or_none(FIELD_SETTINGS_SOURCE_STATUS),
+        'source_responsible': _int_or_none(FIELD_SETTINGS_SOURCE_RESPONSIBLE),
         'target_pipeline': _int_or_none(FIELD_SETTINGS_TARGET_PIPELINE),
         'target_status': _int_or_none(FIELD_SETTINGS_TARGET_STATUS),
     }
@@ -218,6 +237,12 @@ def save_funnel_settings(settings):
         amocrm.build_custom_field(FIELD_SETTINGS_TARGET_PIPELINE, int(settings['target_pipeline'])),
         amocrm.build_custom_field(FIELD_SETTINGS_TARGET_STATUS, int(settings['target_status'])),
     ]
+    if FIELD_SETTINGS_SOURCE_RESPONSIBLE:
+        # 0 = «не уточнено», тот же язык, что и у остальных числовых полей
+        # (custom_field_num возвращает 0.0 для пустого -> _int_or_none даёт None).
+        cfs.append(amocrm.build_custom_field(
+            FIELD_SETTINGS_SOURCE_RESPONSIBLE, int(settings.get('source_responsible') or 0)
+        ))
     elements = amocrm.fetch_catalog_elements(CATALOG_SETTINGS_ID)
     if elements:
         amocrm.update_catalog_element(CATALOG_SETTINGS_ID, elements[0]['id'], custom_fields_values=cfs)
@@ -287,7 +312,7 @@ def get_status_for_manager(user_id):
     _require_config()
 
     funnel = _load_funnel_settings()
-    if not all(funnel.values()):
+    if not _funnel_is_configured(funnel):
         return {'ok': False, 'reason': 'funnel_not_configured'}
 
     groups = _load_groups()
@@ -298,7 +323,9 @@ def get_status_for_manager(user_id):
     month_str = _current_month_msk()
     count = _read_counter(user_id, month_str)
 
-    candidates = amocrm.fetch_unassigned_leads(funnel['source_pipeline'], funnel['source_status'])
+    candidates = amocrm.fetch_unassigned_leads(
+            funnel['source_pipeline'], funnel['source_status'], funnel.get('source_responsible')
+        )
     available = sum(1 for c in candidates if group['tag'] in amocrm.lead_tag_names(c))
 
     return {
@@ -325,7 +352,7 @@ def get_lead_for_manager(user_id):
 
     with _ASSIGN_LOCK:
         funnel = _load_funnel_settings()
-        if not all(funnel.values()):
+        if not _funnel_is_configured(funnel):
             return {'ok': False, 'reason': 'funnel_not_configured'}
 
         groups = _load_groups()
@@ -338,7 +365,9 @@ def get_lead_for_manager(user_id):
         if count >= limit:
             return {'ok': False, 'reason': 'limit_reached', 'limit': limit, 'count': count}
 
-        candidates = amocrm.fetch_unassigned_leads(funnel['source_pipeline'], funnel['source_status'])
+        candidates = amocrm.fetch_unassigned_leads(
+            funnel['source_pipeline'], funnel['source_status'], funnel.get('source_responsible')
+        )
         eligible = [c for c in candidates if group['tag'] in amocrm.lead_tag_names(c)]
         if not eligible:
             return {'ok': False, 'reason': 'no_leads'}

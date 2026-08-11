@@ -48,3 +48,5 @@ services:
         sync: false
       - key: LEAD_BUTTON_FIELD_SETTINGS_TARGET_STATUS
         sync: false
+      - key: LEAD_BUTTON_FIELD_SETTINGS_SOURCE_RESPONSIBLE
+        sync: false

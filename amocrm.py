@@ -100,18 +100,29 @@ def lead_tag_names(lead):
     return [t.get('name') for t in tags if t.get('name')]
 
 
-def fetch_unassigned_leads(pipeline_id, status_id, limit=250):
-    """Сделки конкретного статуса-источника без ответственного менеджера.
+def fetch_unassigned_leads(pipeline_id, status_id, source_responsible_user_id=None, limit=250):
+    """Сделки в статусе-источнике (пуле распределения), опционально ещё
+    отфильтрованные по текущему ответственному.
+
+    На практике сделки в статусе-пуле обычно уже висят на каком-то
+    техническом/интеграционном пользователе (бот приёма лидов), а не на
+    реальном менеджере или пустом responsible_user_id. Если администратор
+    указал `source_responsible_user_id` — берём только сделки именно с этим
+    ответственным (точнее отсекает случайно попавшие в статус чужие сделки
+    реальных менеджеров); если не указал — берём весь статус целиком.
+
     Возвращает list[dict], каждая сделка — с тегами (with=tags)."""
-    data = _request('/leads', {
+    params = {
         'filter[statuses][0][pipeline_id]': pipeline_id,
         'filter[statuses][0][status_id]': status_id,
         'with': 'tags',
         'limit': limit,
         'order[created_at]': 'asc',
-    }) or {}
-    leads = data.get('_embedded', {}).get('leads', [])
-    return [l for l in leads if not l.get('responsible_user_id')]
+    }
+    if source_responsible_user_id:
+        params['filter[responsible_user_id][]'] = source_responsible_user_id
+    data = _request('/leads', params) or {}
+    return data.get('_embedded', {}).get('leads', [])
 
 
 def patch_lead(lead_id, fields):
