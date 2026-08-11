@@ -31,8 +31,12 @@ FIELD_GROUP_TAG = _env_int('LEAD_BUTTON_FIELD_GROUP_TAG')
 FIELD_GROUP_MEMBERS = _env_int('LEAD_BUTTON_FIELD_GROUP_MEMBERS')  # textarea JSON
 FIELD_GROUP_ACTIVE = _env_int('LEAD_BUTTON_FIELD_GROUP_ACTIVE')
 
-# ID кастомных полей внутри списка «Распределение: счётчики».
+# ID кастомных полей внутри списка «Распределение: счётчики». Счётчик
+# ключуется по (сотрудник × ГРУППА × месяц) — один менеджер может состоять
+# в нескольких группах одновременно, и у каждой группы свой отдельный лимит
+# и свой отдельный остаток, не общий на менеджера.
 FIELD_COUNTER_USER_ID = _env_int('LEAD_BUTTON_FIELD_COUNTER_USER_ID')
+FIELD_COUNTER_GROUP_ID = _env_int('LEAD_BUTTON_FIELD_COUNTER_GROUP_ID')
 FIELD_COUNTER_MONTH = _env_int('LEAD_BUTTON_FIELD_COUNTER_MONTH')
 FIELD_COUNTER_COUNT = _env_int('LEAD_BUTTON_FIELD_COUNTER_COUNT')
 
@@ -79,6 +83,7 @@ def _require_config():
             ('LEAD_BUTTON_FIELD_GROUP_MEMBERS', FIELD_GROUP_MEMBERS),
             ('LEAD_BUTTON_FIELD_GROUP_ACTIVE', FIELD_GROUP_ACTIVE),
             ('LEAD_BUTTON_FIELD_COUNTER_USER_ID', FIELD_COUNTER_USER_ID),
+            ('LEAD_BUTTON_FIELD_COUNTER_GROUP_ID', FIELD_COUNTER_GROUP_ID),
             ('LEAD_BUTTON_FIELD_COUNTER_MONTH', FIELD_COUNTER_MONTH),
             ('LEAD_BUTTON_FIELD_COUNTER_COUNT', FIELD_COUNTER_COUNT),
             ('LEAD_BUTTON_CATALOG_SETTINGS_ID', CATALOG_SETTINGS_ID),
@@ -126,49 +131,56 @@ def _load_groups():
     return groups
 
 
-def _find_group_for_user(groups, user_id):
-    """Первая активная группа, где состоит user_id. Возвращает (group, limit)
-    или (None, None), если сотрудник ни в одной группе не числится."""
+def _find_groups_for_user(groups, user_id):
+    """ВСЕ активные группы, где состоит user_id — менеджер может входить
+    сразу в несколько, у каждой свой отдельный лимит/остаток. Возвращает
+    list[(group, limit)], в порядке, в котором группы лежат в каталоге."""
+    result = []
     for g in groups:
         if not g['active']:
             continue
         for m in g['members']:
             if int(m.get('user_id', -1)) == int(user_id):
-                return g, int(m.get('limit', 0))
-    return None, None
+                result.append((g, int(m.get('limit', 0))))
+                break
+    return result
 
 
 # ─── Счётчики ───────────────────────────────────────────────────────────
 
-def _read_counter(user_id, month_str):
-    """Только чтение — сколько уже выдано в этом месяце, 0 если записи ещё
-    нет. В отличие от `_get_or_create_counter` ничего не создаёт в AmoCRM —
-    для статуса «сколько доступно» до нажатия кнопки лишний элемент не нужен."""
+def _read_counter(user_id, group_id, month_str):
+    """Только чтение — сколько уже выдано по этой ГРУППЕ в этом месяце, 0
+    если записи ещё нет. В отличие от `_get_or_create_counter` ничего не
+    создаёт в AmoCRM — для статуса «сколько доступно» до нажатия кнопки
+    лишний элемент не нужен."""
     elements = amocrm.fetch_catalog_elements(CATALOG_COUNTERS_ID)
     for el in elements:
         el_user = amocrm.custom_field_text(el, FIELD_COUNTER_USER_ID)
+        el_group = amocrm.custom_field_text(el, FIELD_COUNTER_GROUP_ID)
         el_month = amocrm.custom_field_text(el, FIELD_COUNTER_MONTH)
-        if el_user == str(user_id) and el_month == month_str:
+        if el_user == str(user_id) and el_group == str(group_id) and el_month == month_str:
             return int(amocrm.custom_field_num(el, FIELD_COUNTER_COUNT))
     return 0
 
 
-def _get_or_create_counter(user_id, month_str):
-    """Элемент-счётчик (user_id × месяц). Создаёт с нулём, если ещё нет.
-    Возвращает (element, count)."""
+def _get_or_create_counter(user_id, group_id, month_str):
+    """Элемент-счётчик (user_id × group_id × месяц). Создаёт с нулём, если
+    ещё нет. Возвращает (element, count)."""
     elements = amocrm.fetch_catalog_elements(CATALOG_COUNTERS_ID)
     for el in elements:
         el_user = amocrm.custom_field_text(el, FIELD_COUNTER_USER_ID)
+        el_group = amocrm.custom_field_text(el, FIELD_COUNTER_GROUP_ID)
         el_month = amocrm.custom_field_text(el, FIELD_COUNTER_MONTH)
-        if el_user == str(user_id) and el_month == month_str:
+        if el_user == str(user_id) and el_group == str(group_id) and el_month == month_str:
             count = amocrm.custom_field_num(el, FIELD_COUNTER_COUNT)
             return el, int(count)
 
     el = amocrm.create_catalog_element(
         CATALOG_COUNTERS_ID,
-        name=f'user_{user_id} / {month_str}',
+        name=f'user_{user_id} / group_{group_id} / {month_str}',
         custom_fields_values=[
             amocrm.build_custom_field(FIELD_COUNTER_USER_ID, str(user_id)),
+            amocrm.build_custom_field(FIELD_COUNTER_GROUP_ID, str(group_id)),
             amocrm.build_custom_field(FIELD_COUNTER_MONTH, month_str),
             amocrm.build_custom_field(FIELD_COUNTER_COUNT, 0),
         ],
@@ -254,20 +266,22 @@ def save_funnel_settings(settings):
 
 def list_groups():
     """Группы с добавленным по каждому сотруднику `count` — фактическим
-    числом выданных лидов в текущем месяце (рядом с лимитом на экране
-    настроек)."""
+    числом выданных лидов в текущем месяце ИМЕННО ПО ЭТОЙ группе (рядом с
+    лимитом на экране настроек). Один сотрудник в разных группах может
+    иметь разный count — счётчики теперь per-группа, не общие на менеджера."""
     _require_config()
     groups = _load_groups()
     month_str = _current_month_msk()
     counters = amocrm.fetch_catalog_elements(CATALOG_COUNTERS_ID)
-    count_by_user = {}
+    count_by_user_group = {}
     for el in counters:
         if amocrm.custom_field_text(el, FIELD_COUNTER_MONTH) == month_str:
             uid = amocrm.custom_field_text(el, FIELD_COUNTER_USER_ID)
-            count_by_user[uid] = int(amocrm.custom_field_num(el, FIELD_COUNTER_COUNT))
+            gid = amocrm.custom_field_text(el, FIELD_COUNTER_GROUP_ID)
+            count_by_user_group[(uid, gid)] = int(amocrm.custom_field_num(el, FIELD_COUNTER_COUNT))
     for g in groups:
         for m in g['members']:
-            m['count'] = count_by_user.get(str(m.get('user_id')), 0)
+            m['count'] = count_by_user_group.get((str(m.get('user_id')), str(g['id'])), 0)
     return groups
 
 
@@ -301,12 +315,15 @@ def save_groups(groups_payload):
 
 
 def get_status_for_manager(user_id):
-    """Только чтение — сколько лидов реально доступно и сколько осталось
-    лимита, для отображения на странице ДО нажатия кнопки (ничего не
-    назначает, не трогает счётчик).
+    """Только чтение — по КАЖДОЙ группе, в которой состоит менеджер, сколько
+    лидов реально доступно и сколько осталось лимита именно у этой группы.
+    Ничего не назначает, не трогает счётчики.
 
     Возвращает dict:
-      {'ok': True, 'group': ..., 'available_leads': N, 'limit': L, 'used': C, 'remaining': L-C}
+      {'ok': True, 'groups': [
+          {'group': ..., 'tag': ..., 'available_leads': N, 'limit': L, 'used': C, 'remaining': L-C},
+          ...
+      ]}
       {'ok': False, 'reason': 'not_allowed' | 'funnel_not_configured'}
     """
     _require_config()
@@ -316,32 +333,41 @@ def get_status_for_manager(user_id):
         return {'ok': False, 'reason': 'funnel_not_configured'}
 
     groups = _load_groups()
-    group, limit = _find_group_for_user(groups, user_id)
-    if group is None:
+    user_groups = _find_groups_for_user(groups, user_id)
+    if not user_groups:
         return {'ok': False, 'reason': 'not_allowed'}
 
     month_str = _current_month_msk()
-    count = _read_counter(user_id, month_str)
-
     candidates = amocrm.fetch_unassigned_leads(
-            funnel['source_pipeline'], funnel['source_status'], funnel.get('source_responsible')
-        )
-    available = sum(1 for c in candidates if group['tag'] in amocrm.lead_tag_names(c))
+        funnel['source_pipeline'], funnel['source_status'], funnel.get('source_responsible')
+    )
 
-    return {
-        'ok': True,
-        'group': group['name'],
-        'available_leads': available,
-        'limit': limit,
-        'used': count,
-        'remaining': max(0, limit - count),
-    }
+    result_groups = []
+    for group, limit in user_groups:
+        count = _read_counter(user_id, group['id'], month_str)
+        available = sum(1 for c in candidates if group['tag'] in amocrm.lead_tag_names(c))
+        result_groups.append({
+            'group': group['name'],
+            'tag': group['tag'],
+            'available_leads': available,
+            'limit': limit,
+            'used': count,
+            'remaining': max(0, limit - count),
+        })
+
+    return {'ok': True, 'groups': result_groups}
 
 
 # ─── Основной сценарий ──────────────────────────────────────────────────
 
 def get_lead_for_manager(user_id):
     """Обрабатывает нажатие кнопки менеджером `user_id`.
+
+    Менеджер может состоять сразу в нескольких активных группах — каждая
+    со своим тегом и своим отдельным лимитом/остатком. Перебираем группы
+    по порядку и берём лид из первой, где остался лимит И нашёлся подходящий
+    лид; если в одной группе лимит исчерпан, а в другой ещё есть — лид
+    придёт из второй, это и есть основной смысл мультигрупповости.
 
     Возвращает dict:
       {'ok': True, 'lead_id': ..., 'lead_name': ..., 'group': ...}
@@ -356,35 +382,43 @@ def get_lead_for_manager(user_id):
             return {'ok': False, 'reason': 'funnel_not_configured'}
 
         groups = _load_groups()
-        group, limit = _find_group_for_user(groups, user_id)
-        if group is None:
+        user_groups = _find_groups_for_user(groups, user_id)
+        if not user_groups:
             return {'ok': False, 'reason': 'not_allowed'}
 
         month_str = _current_month_msk()
-        counter_el, count = _get_or_create_counter(user_id, month_str)
-        if count >= limit:
-            return {'ok': False, 'reason': 'limit_reached', 'limit': limit, 'count': count}
-
         candidates = amocrm.fetch_unassigned_leads(
             funnel['source_pipeline'], funnel['source_status'], funnel.get('source_responsible')
         )
-        eligible = [c for c in candidates if group['tag'] in amocrm.lead_tag_names(c)]
-        if not eligible:
-            return {'ok': False, 'reason': 'no_leads'}
 
-        lead = eligible[0]  # order[created_at]=asc в fetch_unassigned_leads — старые вперёд
-        amocrm.patch_lead(lead['id'], {
-            'responsible_user_id': int(user_id),
-            'pipeline_id': funnel['target_pipeline'],
-            'status_id': funnel['target_status'],
-        })
-        _increment_counter(counter_el, count + 1)
+        any_quota_left = False
+        for group, limit in user_groups:
+            counter_el, count = _get_or_create_counter(user_id, group['id'], month_str)
+            if count >= limit:
+                continue
+            any_quota_left = True
 
-        return {
-            'ok': True,
-            'lead_id': lead['id'],
-            'lead_name': lead.get('name'),
-            'group': group['name'],
-            'count': count + 1,
-            'limit': limit,
-        }
+            eligible = [c for c in candidates if group['tag'] in amocrm.lead_tag_names(c)]
+            if not eligible:
+                continue
+
+            lead = eligible[0]  # order[created_at]=asc в fetch_unassigned_leads — старые вперёд
+            amocrm.patch_lead(lead['id'], {
+                'responsible_user_id': int(user_id),
+                'pipeline_id': funnel['target_pipeline'],
+                'status_id': funnel['target_status'],
+            })
+            _increment_counter(counter_el, count + 1)
+
+            return {
+                'ok': True,
+                'lead_id': lead['id'],
+                'lead_name': lead.get('name'),
+                'group': group['name'],
+                'count': count + 1,
+                'limit': limit,
+            }
+
+        if not any_quota_left:
+            return {'ok': False, 'reason': 'limit_reached'}
+        return {'ok': False, 'reason': 'no_leads'}

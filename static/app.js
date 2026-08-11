@@ -55,17 +55,25 @@
     var status = el('div', { class: 'lb-status' });
 
     function refreshAvailability() {
-      availabilityBox.textContent = 'Загрузка…';
+      availabilityBox.innerHTML = 'Загрузка…';
       api('/api/status', 'POST').then(function (res) {
         var d = res.data;
+        availabilityBox.innerHTML = '';
         if (d.ok) {
-          availabilityBox.textContent =
-            'Группа «' + d.group + '» · доступно лидов: ' + d.available_leads +
-            ' · остаток лимита в этом месяце: ' + d.remaining + ' из ' + d.limit;
-          btn.disabled = d.available_leads <= 0 || d.remaining <= 0;
+          // У менеджера может быть несколько групп — у каждой свой отдельный
+          // остаток лимита, поэтому строка на группу, не одна общая.
+          d.groups.forEach(function (g) {
+            availabilityBox.appendChild(el('div', {
+              text: 'Группа «' + g.group + '» · доступно лидов: ' + g.available_leads +
+                ' · остаток лимита в этом месяце: ' + g.remaining + ' из ' + g.limit,
+            }));
+          });
+          var anyReady = d.groups.some(function (g) { return g.available_leads > 0 && g.remaining > 0; });
+          btn.disabled = !anyReady;
         } else {
-          availabilityBox.textContent = RESULT_MESSAGES[d.error || d.reason] ||
-            ('Недоступно (' + (d.error || d.reason) + ').');
+          availabilityBox.appendChild(el('div', {
+            text: RESULT_MESSAGES[d.error || d.reason] || ('Недоступно (' + (d.error || d.reason) + ').'),
+          }));
           btn.disabled = true;
         }
       });

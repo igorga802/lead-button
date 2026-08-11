@@ -34,6 +34,8 @@ services:
         sync: false
       - key: LEAD_BUTTON_FIELD_COUNTER_USER_ID
         sync: false
+      - key: LEAD_BUTTON_FIELD_COUNTER_GROUP_ID
+        sync: false
       - key: LEAD_BUTTON_FIELD_COUNTER_MONTH
         sync: false
       - key: LEAD_BUTTON_FIELD_COUNTER_COUNT
