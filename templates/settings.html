@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Настройки — Получить лид</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", sans-serif; max-width: 720px; margin: 40px auto; padding: 0 20px; }
+  h1 { font-size: 20px; }
+  a { color: #2864ff; }
+  input[type=text], select { padding: 6px; font-size: 14px; }
+  button { padding: 8px 16px; font-size: 14px; cursor: pointer; }
+  hr { margin: 20px 0; border: none; border-top: 1px solid #ddd; }
+  #app { margin-top: 16px; }
+</style>
+</head>
+<body>
+  <p><a href="/">← Назад к кнопке</a></p>
+  <h1>Настройки распределения</h1>
+  <div id="app"></div>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+  <script>
+    LeadButton.renderSettingsPage(document.getElementById('app'));
+  </script>
+</body>
+</html>

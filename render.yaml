@@ -10,7 +10,9 @@ services:
         sync: false
       - key: AMOCRM_TOKEN
         sync: false
-      - key: WIDGET_SHARED_SECRET
+      - key: LEAD_BUTTON_USER
+        sync: false
+      - key: LEAD_BUTTON_PASS
         sync: false
       - key: LEAD_BUTTON_CATALOG_GROUPS_ID
         sync: false

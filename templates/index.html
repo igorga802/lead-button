@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Получить лид</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", sans-serif; max-width: 480px; margin: 60px auto; padding: 0 20px; }
+  h1 { font-size: 22px; }
+  a { color: #2864ff; }
+  #app { margin-top: 24px; }
+</style>
+</head>
+<body>
+  <h1>Получить лид</h1>
+  <div id="app"></div>
+  <p style="margin-top:40px;"><a href="/settings">Настройки (группы, воронка)</a></p>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+  <script>
+    LeadButton.renderGetLeadPage(document.getElementById('app'), {{ users | tojson }});
+  </script>
+</body>
+</html>

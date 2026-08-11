@@ -1,19 +1,22 @@
-"""Бэкенд кнопки «Получить лид» — отдельный сервис, не зависит от дашборда.
+"""Бэкенд + веб-страница кнопки «Получить лид» — отдельный сервис, не зависит
+от дашборда.
 
-Два роута:
-  POST /api/widget/get-lead  — менеджер нажал кнопку в AmoCRM
-  GET/POST /api/widget/settings — экран настроек виджета (группы, лимиты, воронка)
+Обычное веб-приложение за HTTP Basic Auth (один общий логин/пароль на всех
+менеджеров, как в дашборде Dash_Bot_Fork) — не виджет AmoCRM, открывается
+отдельной вкладкой/ссылкой. Менеджер сам выбирает себя из списка на странице.
 
-Оба закрыты общим секретом (WIDGET_SHARED_SECRET), зашитым в widget/script.js,
-и CORS, ограниченным на конкретный поддомен AmoCRM. Никакого HTTP Basic Auth
-здесь нет — это не веб-страница для человека, а API для JS-виджета.
+Роуты:
+  GET  /                — страница «Получить лид» (дропдаун + кнопка)
+  GET  /settings         — страница настроек (группы, лимиты, воронка)
+  POST /api/get-lead      — нажатие кнопки
+  GET/POST /api/settings  — чтение/сохранение настроек
 """
 import os
 import secrets
 from functools import wraps
 
 from dotenv import load_dotenv
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, render_template, request, Response
 
 load_dotenv()
 
@@ -22,46 +25,60 @@ import lead_distribution
 
 app = Flask(__name__)
 
-WIDGET_SHARED_SECRET = os.environ.get('WIDGET_SHARED_SECRET', '')
-AMOCRM_SUBDOMAIN = os.environ.get('AMOCRM_SUBDOMAIN', '').strip()
+LEAD_BUTTON_USER = os.environ.get('LEAD_BUTTON_USER', 'admin')
+LEAD_BUTTON_PASS = os.environ.get('LEAD_BUTTON_PASS')
+if not LEAD_BUTTON_PASS:
+    LEAD_BUTTON_PASS = 'changeme'
+    print('⚠️  LEAD_BUTTON_PASS env var not set — using default "changeme". '
+          'DO NOT use this in production.')
 
 
-@app.after_request
-def add_headers(response):
-    response.headers['X-Content-Type-Options'] = 'nosniff'
-    response.headers['X-Frame-Options'] = 'DENY'
-    if AMOCRM_SUBDOMAIN:
-        response.headers['Access-Control-Allow-Origin'] = f'https://{AMOCRM_SUBDOMAIN}.amocrm.ru'
-        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
-        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, X-Widget-Secret'
-    return response
-
-
-def requires_widget_secret(f):
+def requires_auth(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        if request.method == 'OPTIONS':
-            return f(*args, **kwargs)  # CORS preflight — без кастомных заголовков
-        if not WIDGET_SHARED_SECRET:
-            return jsonify({'ok': False, 'error': 'widget_not_configured'}), 503
-        provided = request.headers.get('X-Widget-Secret', '')
-        if not secrets.compare_digest(provided, WIDGET_SHARED_SECRET):
-            return jsonify({'ok': False, 'error': 'forbidden'}), 403
+        auth = request.authorization
+        ok = False
+        if auth:
+            ok = (
+                secrets.compare_digest(auth.username or '', LEAD_BUTTON_USER) and
+                secrets.compare_digest(auth.password or '', LEAD_BUTTON_PASS)
+            )
+        if not ok:
+            return Response(
+                'Authentication required', 401,
+                {'WWW-Authenticate': 'Basic realm="Lead Button"'}
+            )
         return f(*args, **kwargs)
     return decorated
 
 
+@app.after_request
+def add_security_headers(response):
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['Content-Security-Policy'] = "default-src 'self'"
+    return response
+
+
 @app.route('/')
+@requires_auth
 def index():
-    return jsonify({'service': 'lead-button', 'status': 'ok'})
+    users = sorted(
+        ({'id': u.get('id'), 'name': u.get('name')} for u in amocrm.fetch_users() if u.get('id')),
+        key=lambda u: u['name'] or ''
+    )
+    return render_template('index.html', users=users)
 
 
-@app.route('/api/widget/get-lead', methods=['POST', 'OPTIONS'])
-@requires_widget_secret
-def widget_get_lead():
-    if request.method == 'OPTIONS':
-        return '', 204
+@app.route('/settings')
+@requires_auth
+def settings_page():
+    return render_template('settings.html')
 
+
+@app.route('/api/get-lead', methods=['POST'])
+@requires_auth
+def api_get_lead():
     body = request.get_json(silent=True) or {}
     user_id = body.get('user_id')
     if not user_id:
@@ -80,12 +97,9 @@ def widget_get_lead():
     return jsonify(result)
 
 
-@app.route('/api/widget/settings', methods=['GET', 'POST', 'OPTIONS'])
-@requires_widget_secret
-def widget_settings():
-    if request.method == 'OPTIONS':
-        return '', 204
-
+@app.route('/api/settings', methods=['GET', 'POST'])
+@requires_auth
+def api_settings():
     try:
         if request.method == 'GET':
             return jsonify({

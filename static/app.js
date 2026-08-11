@@ -1,35 +1,13 @@
-/*
- * Виджет «Получить лид».
- *
- * ПЕРЕД УПАКОВКОЙ В ZIP: замените BACKEND_URL на реальный адрес этого сервиса
- * на Render (появится после первого деплоя — см. README.md в корне проекта).
- * WIDGET_SECRET уже заполнен тем же значением, что и в .env/Render.
- *
- * ВАЖНО (проверить при первой установке в реальном аккаунте, см. widget/README.md):
- *   - self.system().area — так классический JS SDK amoCRM обычно сообщает
- *     виджету, в какой локации он сейчас рендерится (см. "locations" в
- *     manifest.json: "everywhere" — плавающая кнопка, "advanced_settings" —
- *     экран настроек групп). Если в вашей версии SDK поле называется иначе —
- *     поправьте ветвление в define() ниже по подсказке из консоли браузера.
- *   - self.render_template(...) — стандартный способ классических виджетов
- *     вставить HTML в контейнер, который amoCRM выделяет виджету на странице
- *     (используется только для экрана настроек — сама кнопка рисуется поверх
- *     интерфейса напрямую, см. renderFloatingButton).
- */
-define(['jquery'], function ($) {
+/* Общий JS для обеих страниц (get-lead и settings). Обычная same-origin
+ * страница за HTTP Basic Auth — никакого AmoCRM SDK, никакого CORS/секрета:
+ * браузер сам шлёт Basic-Auth заголовок на каждый fetch к тому же домену. */
+(function () {
   'use strict';
 
-  var BACKEND_URL = 'https://REPLACE-ME.onrender.com';
-  var WIDGET_SECRET = '5fb99341e0f9376eb01898a9bbfe06653bd226e8809b22a1';
-
   function api(path, method, body) {
-    return fetch(BACKEND_URL + path, {
+    return fetch(path, {
       method: method,
-      mode: 'cors',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Widget-Secret': WIDGET_SECRET,
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined,
     }).then(function (r) {
       return r.json().then(function (data) {
@@ -50,9 +28,7 @@ define(['jquery'], function ($) {
         node.setAttribute(k, attrs[k]);
       }
     });
-    (children || []).forEach(function (c) {
-      if (c) node.appendChild(c);
-    });
+    (children || []).forEach(function (c) { if (c) node.appendChild(c); });
     return node;
   }
 
@@ -61,104 +37,42 @@ define(['jquery'], function ($) {
     limit_reached: 'Лимит на этот месяц исчерпан.',
     no_leads: 'Сейчас нет подходящих лидов для вашей группы. Попробуйте позже.',
     not_configured: 'Кнопка ещё не настроена администратором.',
-    funnel_not_configured: 'Не выбрана воронка источника/назначения. Откройте настройки виджета.',
+    funnel_not_configured: 'Не выбрана воронка источника/назначения. Откройте настройки.',
     amocrm_error: 'Ошибка при обращении к AmoCRM. Попробуйте ещё раз.',
     unknown_user: 'Не удалось определить пользователя.',
     missing_user_id: 'Не удалось определить пользователя.',
   };
 
-  // ─── Локация "everywhere": плавающая перетаскиваемая кнопка ─────────
-  // AmoCRM не даёт штатного drag-n-drop для позиции виджета, поэтому кнопка
-  // рисуется НАШИМ кодом поверх интерфейса (position: fixed) и сама
-  // реализует перетаскивание мышью. Позиция запоминается в localStorage
-  // браузера — переживает перезагрузку страницы и переходы между разделами
-  // AmoCRM, но привязана к конкретному браузеру/устройству менеджера
-  // (не синхронизируется между компьютерами — это простое и достаточное
-  // решение для v1, синхронизация через бэкенд по user_id — по запросу).
-  var STORAGE_KEY = 'lead_button_widget_position_v1';
-  var DRAG_THRESHOLD = 4; // px — меньше считаем кликом, не перетаскиванием
+  var LAST_USER_KEY = 'lead_button_last_user';
 
-  function renderFloatingButton(userId) {
-    if (document.querySelector('.lead-button-widget-floating')) return; // уже отрисована
+  // ─── Страница «Получить лид» ────────────────────────────────────────
+  function renderGetLeadPage(container, users) {
+    var savedUser = localStorage.getItem(LAST_USER_KEY) || '';
 
-    var saved = null;
-    try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null'); } catch (e) { /* ignore */ }
-    var right = saved && typeof saved.right === 'number' ? saved.right : 24;
-    var bottom = saved && typeof saved.bottom === 'number' ? saved.bottom : 24;
-
-    var wrap = el('div', {
-      class: 'lead-button-widget-floating',
-      style:
-        'position:fixed; z-index:99999; right:' + right + 'px; bottom:' + bottom + 'px; ' +
-        'cursor:grab; user-select:none; display:flex; flex-direction:column; align-items:flex-end; gap:4px;',
+    var select = el('select', { style: 'font-size:15px;padding:8px;' });
+    select.appendChild(el('option', { value: '', text: '— выберите себя —' }));
+    users.forEach(function (u) {
+      var opt = el('option', { value: u.id, text: u.name });
+      if (String(u.id) === savedUser) opt.selected = true;
+      select.appendChild(opt);
     });
 
     var btn = el('button', {
       text: 'Получить лид',
-      style:
-        'padding:12px 22px;font-size:15px;border:none;border-radius:24px;cursor:inherit;' +
-        'background:#2864ff;color:#fff;box-shadow:0 2px 10px rgba(0,0,0,.25);',
+      style: 'padding:10px 24px;font-size:15px;margin-left:12px;cursor:pointer;',
     });
-    var status = el('div', {
-      style:
-        'max-width:260px;font-size:13px;background:#fff;color:#333;padding:6px 10px;' +
-        'border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.2);display:none;',
-    });
+    var status = el('div', { style: 'margin-top:16px;font-size:14px;' });
 
-    wrap.appendChild(btn);
-    wrap.appendChild(status);
-    document.body.appendChild(wrap);
-
-    // ── Перетаскивание ──
-    var dragging = false;
-    var moved = false;
-    var startX, startY, startRight, startBottom;
-
-    wrap.addEventListener('mousedown', function (e) {
-      dragging = true;
-      moved = false;
-      startX = e.clientX;
-      startY = e.clientY;
-      var rect = wrap.getBoundingClientRect();
-      startRight = window.innerWidth - rect.right;
-      startBottom = window.innerHeight - rect.bottom;
-      wrap.style.cursor = 'grabbing';
-      e.preventDefault();
-    });
-
-    document.addEventListener('mousemove', function (e) {
-      if (!dragging) return;
-      var dx = e.clientX - startX;
-      var dy = e.clientY - startY;
-      if (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD) moved = true;
-      if (!moved) return;
-      var newRight = Math.max(0, startRight - dx);
-      var newBottom = Math.max(0, startBottom - dy);
-      wrap.style.right = newRight + 'px';
-      wrap.style.bottom = newBottom + 'px';
-    });
-
-    document.addEventListener('mouseup', function () {
-      if (!dragging) return;
-      dragging = false;
-      wrap.style.cursor = 'grab';
-      if (moved) {
-        var rect = wrap.getBoundingClientRect();
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({
-          right: window.innerWidth - rect.right,
-          bottom: window.innerHeight - rect.bottom,
-        }));
-      }
-    });
-
-    // ── Клик = «получить лид», только если это не был drag ──
     btn.addEventListener('click', function () {
-      if (moved) { moved = false; return; }
-
+      var userId = select.value;
+      if (!userId) {
+        status.textContent = 'Сначала выберите себя из списка.';
+        return;
+      }
+      localStorage.setItem(LAST_USER_KEY, userId);
       btn.disabled = true;
-      status.style.display = 'block';
       status.textContent = 'Запрашиваю…';
-      api('/api/widget/get-lead', 'POST', { user_id: userId })
+      api('/api/get-lead', 'POST', { user_id: parseInt(userId, 10) })
         .then(function (res) {
           var d = res.data;
           if (d.ok) {
@@ -173,14 +87,14 @@ define(['jquery'], function ($) {
         .catch(function () {
           status.textContent = 'Не удалось связаться с сервером. Попробуйте позже.';
         })
-        .finally(function () {
-          btn.disabled = false;
-        });
+        .finally(function () { btn.disabled = false; });
     });
+
+    container.appendChild(el('div', {}, [select, btn]));
+    container.appendChild(status);
   }
 
-  // Блок «воронка-источник → воронка/этап-назначение» на экране настроек.
-  // Каскадные дропдауны: выбор воронки перестраивает список её этапов.
+  // ─── Блок воронки (общий на экране настроек) ────────────────────────
   function renderFunnelBox(state) {
     function pipelinePicker(pipelineKey, statusKey, label) {
       var pipelineSelect = el('select', {});
@@ -228,11 +142,11 @@ define(['jquery'], function ($) {
     ]);
   }
 
-  // ─── Локация "advanced_settings": экран настройки групп ────────────
+  // ─── Страница настроек (группы + воронка) ───────────────────────────
   function renderSettingsPage(container) {
     container.appendChild(el('div', { text: 'Загрузка…' }));
 
-    api('/api/widget/settings', 'GET').then(function (res) {
+    api('/api/settings', 'GET').then(function (res) {
       container.innerHTML = '';
       if (!res.data.ok) {
         container.appendChild(el('div', {
@@ -253,12 +167,12 @@ define(['jquery'], function ($) {
 
       function renderGroups() {
         groupsBox.innerHTML = '';
-        state.groups.forEach(function (group, gIdx) {
-          groupsBox.appendChild(renderGroupRow(group, gIdx));
+        state.groups.forEach(function (group) {
+          groupsBox.appendChild(renderGroupRow(group));
         });
       }
 
-      function renderGroupRow(group, gIdx) {
+      function renderGroupRow(group) {
         var nameInput = el('input', { type: 'text', value: group.name || '', placeholder: 'Название группы' });
         nameInput.addEventListener('input', function () { group.name = nameInput.value; });
 
@@ -337,10 +251,9 @@ define(['jquery'], function ($) {
       var saveStatus = el('span', { style: 'margin-left:12px;' });
       var saveBtn = el('button', {
         text: 'Сохранить',
-        class: 'button button-input',
         onclick: function () {
           saveStatus.textContent = 'Сохраняю…';
-          api('/api/widget/settings', 'POST', { groups: state.groups, funnel: state.funnel }).then(function (res2) {
+          api('/api/settings', 'POST', { groups: state.groups, funnel: state.funnel }).then(function (res2) {
             saveStatus.textContent = res2.data.ok ? 'Сохранено.' : 'Ошибка сохранения.';
           });
         },
@@ -351,47 +264,5 @@ define(['jquery'], function ($) {
     });
   }
 
-  return function () {
-    var self = this;
-
-    this.callbacks = {
-      render: function () {
-        return true;
-      },
-      init: function () {
-        var sys = self.system ? self.system() : {};
-        var area = sys.area || (self.get_settings ? self.get_settings().area : null);
-
-        if (area === 'advanced_settings') {
-          // Экран настроек — обычная страница внутри контейнера, который
-          // выделяет AmoCRM для этой локации; здесь render_template уместен.
-          var container = document.createElement('div');
-          container.className = 'lead-button-widget-settings';
-          renderSettingsPage(container);
-          if (self.render_template) {
-            self.render_template({ caption: { class_name: '' }, body: { class_name: '' }, render: '' });
-          }
-          var host = document.querySelector('.lead-button-widget-settings-host') || document.body;
-          host.appendChild(container);
-        } else {
-          // "everywhere" — сама кнопка рисуется поверх интерфейса
-          // (position: fixed), без привязки к контейнеру AmoCRM, см.
-          // renderFloatingButton. init() на этой локации может сработать
-          // повторно при переходах между разделами — renderFloatingButton
-          // сам проверяет, не отрисована ли кнопка уже, и не дублирует её.
-          renderFloatingButton(sys.amouser_id);
-        }
-
-        return true;
-      },
-      bind_actions: function () {
-        return true;
-      },
-      settings: function () {
-        return true;
-      },
-    };
-
-    return this;
-  };
-});
+  window.LeadButton = { renderGetLeadPage: renderGetLeadPage, renderSettingsPage: renderSettingsPage };
+})();
