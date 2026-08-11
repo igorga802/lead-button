@@ -63,9 +63,19 @@ def _request(path, params=None, method='GET', json_body=None):
 
 
 def fetch_users():
-    """list[dict] — пользователи AmoCRM (id, name, email и др.)."""
+    """list[dict] — ВСЕ пользователи AmoCRM, включая уволенных/деактивированных
+    (id, name, email, rights.is_active и др.). Для выбора реальных сотрудников
+    (настройки, вход) использовать fetch_active_users()."""
     data = _request('/users', {'limit': API_PAGE_LIMIT}) or {}
     return data.get('_embedded', {}).get('users', [])
+
+
+def fetch_active_users():
+    """Только активные сотрудники (rights.is_active) — уволенные/деактивированные
+    в AmoCRM не удаляются физически, а помечаются этим флагом. Использовать
+    везде, где нужен реальный текущий состав: список для добавления в группы
+    распределения, сверка личности при OAuth-входе."""
+    return [u for u in fetch_users() if (u.get('rights') or {}).get('is_active')]
 
 
 def fetch_pipelines():

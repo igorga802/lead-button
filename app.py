@@ -134,13 +134,15 @@ def oauth_callback():
             OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, OAUTH_REDIRECT_URI, code
         )
         candidate_user_id = amocrm.decode_jwt_user_id(token_data.get('access_token', ''))
-        users = amocrm.fetch_users()
-        matched = next((u for u in users if u.get('id') == candidate_user_id), None)
+        # fetch_active_users(), не fetch_users() — уволенный/деактивированный
+        # сотрудник не должен получить доступ к кнопке, даже если ещё умеет
+        # войти в сам AmoCRM.
+        matched = next((u for u in amocrm.fetch_active_users() if u.get('id') == candidate_user_id), None)
     except amocrm.AmoCRMError as e:
         return f'Ошибка при обращении к AmoCRM во время входа: {e}', 502
 
     if not matched:
-        return 'Не удалось определить пользователя AmoCRM по результату входа. Попробуйте ещё раз.', 403
+        return 'Доступ закрыт: пользователь не найден среди активных сотрудников AmoCRM.', 403
 
     session.clear()
     session.permanent = True
@@ -206,7 +208,7 @@ def api_settings():
                 'tags': [t.get('name') for t in amocrm.fetch_account_tags('leads') if t.get('name')],
                 'users': [
                     {'id': u.get('id'), 'name': u.get('name')}
-                    for u in amocrm.fetch_users() if u.get('id')
+                    for u in amocrm.fetch_active_users() if u.get('id')
                 ],
                 'pipelines': amocrm.fetch_pipelines(),
                 'funnel': lead_distribution.load_funnel_settings(),
