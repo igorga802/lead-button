@@ -408,6 +408,13 @@ def get_lead_for_manager(user_id):
                 'pipeline_id': funnel['target_pipeline'],
                 'status_id': funnel['target_status'],
             })
+            # Контакт — отдельная сущность со своим ответственным и своими
+            # правами видимости. Без этого шага сделка переезжает к менеджеру,
+            # а привязанный контакт (и вся история переписки/звонков на нём)
+            # остаётся на прежнем ответственном (обычно боте приёма лидов),
+            # и по правам доступа менеджер его просто не видит.
+            for contact_id in amocrm.lead_contact_ids(lead):
+                amocrm.patch_contact(contact_id, {'responsible_user_id': int(user_id)})
             _increment_counter(counter_el, count + 1)
 
             return {

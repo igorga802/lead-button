@@ -100,6 +100,16 @@ def lead_tag_names(lead):
     return [t.get('name') for t in tags if t.get('name')]
 
 
+def lead_contact_ids(lead):
+    """ID контактов, привязанных к сделке (пусто, если ни одного). Нужно,
+    чтобы при назначении лида менеджеру переносить ответственного и на
+    контакт — иначе у контакта остаётся прежний ответственный (обычно бот
+    приёма лидов), и по правам доступа менеджер его не видит, хотя сделка
+    уже его."""
+    contacts = (lead.get('_embedded') or {}).get('contacts') or []
+    return [c['id'] for c in contacts if c.get('id')]
+
+
 def fetch_unassigned_leads(pipeline_id, status_id, source_responsible_user_id=None, limit=250):
     """Сделки в статусе-источнике (пуле распределения), опционально ещё
     отфильтрованные по текущему ответственному.
@@ -111,11 +121,12 @@ def fetch_unassigned_leads(pipeline_id, status_id, source_responsible_user_id=No
     ответственным (точнее отсекает случайно попавшие в статус чужие сделки
     реальных менеджеров); если не указал — берём весь статус целиком.
 
-    Возвращает list[dict], каждая сделка — с тегами (with=tags)."""
+    Возвращает list[dict], каждая сделка — с тегами и привязанными контактами
+    (with=tags,contacts; см. lead_contact_ids)."""
     params = {
         'filter[statuses][0][pipeline_id]': pipeline_id,
         'filter[statuses][0][status_id]': status_id,
-        'with': 'tags',
+        'with': 'tags,contacts',
         'limit': limit,
         'order[created_at]': 'asc',
     }
@@ -128,6 +139,11 @@ def fetch_unassigned_leads(pipeline_id, status_id, source_responsible_user_id=No
 def patch_lead(lead_id, fields):
     """Обновляет сделку (напр. responsible_user_id, status_id)."""
     return _request(f'/leads/{lead_id}', method='PATCH', json_body=fields)
+
+
+def patch_contact(contact_id, fields):
+    """Обновляет контакт (напр. responsible_user_id)."""
+    return _request(f'/contacts/{contact_id}', method='PATCH', json_body=fields)
 
 
 def fetch_account_tags(entity_type='leads'):
