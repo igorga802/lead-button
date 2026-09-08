@@ -12,6 +12,8 @@
 """
 import json
 import os
+import random
+import re
 import threading
 import time
 
@@ -57,6 +59,18 @@ FIELD_SETTINGS_TARGET_STATUS = _env_int('LEAD_BUTTON_FIELD_SETTINGS_TARGET_STATU
 # _require_config — старые инсталляции без этого поля продолжают работать
 # (просто берут статус целиком, как раньше).
 FIELD_SETTINGS_SOURCE_RESPONSIBLE = _env_int('LEAD_BUTTON_FIELD_SETTINGS_SOURCE_RESPONSIBLE')
+# Пауза между выдачами и порядок распределения — САМА НАСТРОЙКА (число
+# секунд, выбранный порядок) хранится в том же списке «Распределение:
+# настройки», что и воронка — переживает рестарты/передеплои/засыпания.
+# А вот У КОГО ПРЯМО СЕЙЧАС ИДЁТ ОТСЧЁТ (last-claimed-at по каждому
+# менеджеру) — только в памяти процесса (_LAST_CLAIMED_AT ниже), это
+# меняется на каждый клик, а не изредка админом, как сама настройка;
+# при рестарте посреди чьей-то паузы она у него одного обнулится.
+DISTRIBUTION_ORDERS = ('oldest_first', 'newest_first', 'random')
+FIELD_SETTINGS_COOLDOWN_SECONDS = _env_int('LEAD_BUTTON_FIELD_SETTINGS_COOLDOWN_SECONDS')
+FIELD_SETTINGS_DISTRIBUTION_ORDER = _env_int('LEAD_BUTTON_FIELD_SETTINGS_DISTRIBUTION_ORDER')
+_LAST_CLAIMED_AT = {}  # user_id -> unix-время последней успешной выдачи, только в памяти
+_LAST_CLAIMED_LOCK = threading.Lock()
 
 # AmoCRM живёt по Москве (см. тот же выбор в app.py, MSK_OFFSET) — месяц
 # для лимита/счётчика должен совпадать с тем, что менеджер видит у себя.
@@ -203,6 +217,194 @@ def _funnel_is_configured(funnel):
     return all(funnel.get(k) for k in required)
 
 
+# ─── Пауза между выдачами (одна на менеджера, не привязана к группе) ────
+# Чисто в памяти процесса — никакого AmoCRM. Сбрасывается при рестарте
+# сервиса, это нормально для такой механики (ограничение частоты кликов,
+# не бизнес-данные).
+
+def _set_cooldown_last_claimed(user_id, ts):
+    with _LAST_CLAIMED_LOCK:
+        _LAST_CLAIMED_AT[int(user_id)] = ts
+
+
+def _cooldown_remaining_seconds(user_id, cooldown_seconds):
+    """Сколько секунд менеджеру осталось ждать. 0, если паузы нет/уже прошла."""
+    if not cooldown_seconds:
+        return 0
+    last = _LAST_CLAIMED_AT.get(int(user_id))
+    if last is None:
+        return 0
+    remaining = int(last) + int(cooldown_seconds) - int(time.time())
+    return max(0, remaining)
+
+
+# ─── Настройки паузы/порядка (в том же списке AmoCRM, что и воронка) ─────
+# Хранятся в том же элементе-синглтоне, что source/target — просто ещё два
+# поля на нём. Читаем/пишем без кеша, как и остальные настройки.
+
+def load_runtime_settings():
+    _require_config()
+    elements = amocrm.fetch_catalog_elements(CATALOG_SETTINGS_ID)
+    el = elements[0] if elements else None
+    cooldown = 0
+    order = 'oldest_first'
+    if el:
+        if FIELD_SETTINGS_COOLDOWN_SECONDS:
+            v = amocrm.custom_field_num(el, FIELD_SETTINGS_COOLDOWN_SECONDS)
+            cooldown = int(v) if v else 0
+        if FIELD_SETTINGS_DISTRIBUTION_ORDER:
+            v = amocrm.custom_field_text(el, FIELD_SETTINGS_DISTRIBUTION_ORDER)
+            if v in DISTRIBUTION_ORDERS:
+                order = v
+    return {'cooldown_seconds': cooldown, 'distribution_order': order}
+
+
+def save_runtime_settings(cooldown_seconds, distribution_order, admin_name=None):
+    _require_config()
+    order = distribution_order if distribution_order in DISTRIBUTION_ORDERS else 'oldest_first'
+    cooldown = int(cooldown_seconds or 0)
+
+    old = load_runtime_settings()
+    cfs = []
+    if FIELD_SETTINGS_COOLDOWN_SECONDS:
+        cfs.append(amocrm.build_custom_field(FIELD_SETTINGS_COOLDOWN_SECONDS, cooldown))
+    if FIELD_SETTINGS_DISTRIBUTION_ORDER:
+        cfs.append(amocrm.build_custom_field(FIELD_SETTINGS_DISTRIBUTION_ORDER, order))
+
+    if cfs:
+        elements = amocrm.fetch_catalog_elements(CATALOG_SETTINGS_ID)
+        if elements:
+            amocrm.update_catalog_element(CATALOG_SETTINGS_ID, elements[0]['id'], custom_fields_values=cfs)
+        else:
+            amocrm.create_catalog_element(CATALOG_SETTINGS_ID, name='Настройки кнопки', custom_fields_values=cfs)
+
+    lines = []
+    if old['cooldown_seconds'] != cooldown:
+        lines.append(f'Пауза между лидами: {old["cooldown_seconds"]} → {cooldown} сек')
+    if old['distribution_order'] != order:
+        lines.append(f'Порядок распределения: {old["distribution_order"]} → {order}')
+    _log_history(admin_name, lines)
+
+
+# ─── История изменений настроек ──────────────────────────────────────────
+# В отдельном списке AmoCRM «Распределение: история» — в отличие от паузы и
+# порядка распределения (те намеренно только в памяти), история должна
+# переживать не только деплои, но и обычные засыпания free-плана Render
+# (происходят по нескольку раз в день сами по себе), поэтому здесь нужно
+# настоящее постоянное хранилище.
+CATALOG_HISTORY_ID = _env_int('LEAD_BUTTON_CATALOG_HISTORY_ID')
+FIELD_HISTORY_TIMESTAMP = _env_int('LEAD_BUTTON_FIELD_HISTORY_TIMESTAMP')
+FIELD_HISTORY_ADMIN_NAME = _env_int('LEAD_BUTTON_FIELD_HISTORY_ADMIN_NAME')
+FIELD_HISTORY_SUMMARY = _env_int('LEAD_BUTTON_FIELD_HISTORY_SUMMARY')
+
+
+def _user_name_map():
+    try:
+        return {u['id']: u.get('name') for u in amocrm.fetch_users() if u.get('id')}
+    except amocrm.AmoCRMError:
+        return {}
+
+
+def _log_history(admin_name, summary_lines):
+    """Пишет одну запись в журнал истории, если реально что-то изменилось
+    (summary_lines не пуст) и список для истории настроен. Тихо
+    пропускается, если LEAD_BUTTON_CATALOG_HISTORY_ID не задан — история
+    необязательна, не должна ронять само сохранение настроек."""
+    if not summary_lines or not CATALOG_HISTORY_ID:
+        return
+    now = int(time.time())
+    summary = '\n'.join(summary_lines)
+    amocrm.create_catalog_element(
+        CATALOG_HISTORY_ID,
+        name=f'{admin_name or "—"} / {time.strftime("%Y-%m-%d %H:%M", time.gmtime(now + MSK_OFFSET))}',
+        custom_fields_values=[
+            amocrm.build_custom_field(FIELD_HISTORY_TIMESTAMP, now),
+            amocrm.build_custom_field(FIELD_HISTORY_ADMIN_NAME, admin_name or '—'),
+            amocrm.build_custom_field(FIELD_HISTORY_SUMMARY, summary),
+        ],
+    )
+
+
+def list_history(limit=50):
+    """Последние записи истории изменений, новые сверху. [] если список
+    истории не настроен (необязательная фича, не входит в _require_config)."""
+    if not CATALOG_HISTORY_ID:
+        return []
+    elements = amocrm.fetch_catalog_elements(CATALOG_HISTORY_ID)
+    out = []
+    for el in elements:
+        out.append({
+            'timestamp': int(amocrm.custom_field_num(el, FIELD_HISTORY_TIMESTAMP) or 0),
+            'admin_name': amocrm.custom_field_text(el, FIELD_HISTORY_ADMIN_NAME) or '—',
+            'summary': amocrm.custom_field_text(el, FIELD_HISTORY_SUMMARY) or '',
+        })
+    out.sort(key=lambda h: h['timestamp'], reverse=True)
+    return out[:limit]
+
+
+def _diff_groups(old_groups, new_payload):
+    """Сравнивает текущие группы (из _load_groups) с новым payload из формы
+    настроек, возвращает list[str] человекочитаемых изменений."""
+    names = _user_name_map()
+
+    def uname(uid):
+        return names.get(int(uid), f'id{uid}')
+
+    old_by_id = {g['id']: g for g in old_groups}
+    lines = []
+
+    for g in new_payload:
+        members_new = {
+            int(m['user_id']): int(m.get('limit', 0)) for m in g.get('members', [])
+        }
+        if not g.get('id'):
+            member_list = ', '.join(f'{uname(uid)} (лимит {lim})' for uid, lim in members_new.items())
+            lines.append(f'Создана группа «{g.get("name")}» (тег «{g.get("tag")}»)' +
+                         (f': {member_list}' if member_list else ''))
+            continue
+
+        old = old_by_id.get(g['id'])
+        if old is None:
+            continue  # не должно случаться, но не роняем сохранение из-за рассинхрона
+        if old.get('name') != g.get('name'):
+            lines.append(f'Группа «{old.get("name")}»: название → «{g.get("name")}»')
+        label = g.get('name') or old.get('name')
+        if old.get('tag') != g.get('tag'):
+            lines.append(f'Группа «{label}»: тег «{old.get("tag")}» → «{g.get("tag")}»')
+        if bool(old.get('active')) != bool(g.get('active', True)):
+            lines.append(f'Группа «{label}»: активна {old.get("active")} → {bool(g.get("active", True))}')
+
+        members_old = {int(m['user_id']): int(m.get('limit', 0)) for m in old.get('members', [])}
+        for uid in members_new.keys() - members_old.keys():
+            lines.append(f'Группа «{label}»: добавлен {uname(uid)} (лимит {members_new[uid]})')
+        for uid in members_old.keys() - members_new.keys():
+            lines.append(f'Группа «{label}»: убран {uname(uid)}')
+        for uid in members_new.keys() & members_old.keys():
+            if members_new[uid] != members_old[uid]:
+                lines.append(f'Группа «{label}»: лимит {uname(uid)} {members_old[uid]} → {members_new[uid]}')
+
+    return lines
+
+
+_FUNNEL_FIELD_LABELS = {
+    'source_pipeline': 'воронка-источник',
+    'source_status': 'этап-источник',
+    'source_responsible': 'ответственный-источник',
+    'target_pipeline': 'воронка-назначение',
+    'target_status': 'этап-назначение',
+}
+
+
+def _diff_funnel_settings(old, new):
+    lines = []
+    for key, label in _FUNNEL_FIELD_LABELS.items():
+        old_v = old.get(key)
+        new_v = new.get(key) if new.get(key) is not None else old_v
+        if old_v != new_v:
+            lines.append(f'Настройки: {label} {old_v} → {new_v}')
+    return lines
+
+
 # ─── Настройки воронки (источник/назначение) ────────────────────────────
 # Список «Распределение: настройки» задуман как один элемент-«синглтон»,
 # хранящий 4 числа. Читаем/пишем именно так — без кеша, чтобы правка через
@@ -212,7 +414,9 @@ def _load_funnel_settings():
     """Возвращает dict {source_pipeline, source_status, source_responsible,
     target_pipeline, target_status} — int или None по каждому полю, если ещё
     не выбрано. `source_responsible` необязателен даже когда остальное
-    заполнено — None означает «брать статус целиком, без уточнения»."""
+    заполнено — None означает «брать статус целиком, без уточнения».
+    Пауза/порядок распределения сюда не входят — см. load_runtime_settings()
+    (намеренно не в AmoCRM, только в памяти процесса)."""
     elements = amocrm.fetch_catalog_elements(CATALOG_SETTINGS_ID)
     el = elements[0] if elements else None
     if not el:
@@ -239,10 +443,12 @@ def load_funnel_settings():
     return _load_funnel_settings()
 
 
-def save_funnel_settings(settings):
+def save_funnel_settings(settings, admin_name=None):
     """Записывает воронку-источник/назначение (один синглтон-элемент —
-    создаётся при первом сохранении, дальше только обновляется)."""
+    создаётся при первом сохранении, дальше только обновляется). Логирует
+    изменения в историю, если реально что-то поменялось."""
     _require_config()
+    old = _load_funnel_settings()
     cfs = [
         amocrm.build_custom_field(FIELD_SETTINGS_SOURCE_PIPELINE, int(settings['source_pipeline'])),
         amocrm.build_custom_field(FIELD_SETTINGS_SOURCE_STATUS, int(settings['source_status'])),
@@ -255,22 +461,45 @@ def save_funnel_settings(settings):
         cfs.append(amocrm.build_custom_field(
             FIELD_SETTINGS_SOURCE_RESPONSIBLE, int(settings.get('source_responsible') or 0)
         ))
+
     elements = amocrm.fetch_catalog_elements(CATALOG_SETTINGS_ID)
     if elements:
         amocrm.update_catalog_element(CATALOG_SETTINGS_ID, elements[0]['id'], custom_fields_values=cfs)
     else:
         amocrm.create_catalog_element(CATALOG_SETTINGS_ID, name='Настройки кнопки', custom_fields_values=cfs)
 
+    _log_history(admin_name, _diff_funnel_settings(old, settings))
+
 
 # ─── Для настроечного экрана виджета ────────────────────────────────────
+
+# AmoCRM не даёт удалить элемент списка через API (проверено — 200/204,
+# но элемент остаётся). Поэтому «удаление» группы — это переименование с
+# такой меткой в начале имени + очистка + деактивация; list_groups()
+# отфильтровывает такие группы из выдачи, так что из интерфейса настроек
+# они пропадают насовсем, даже если технически ещё существуют в AmoCRM.
+DELETED_MARKER = '[Удалено] '  # emoji AmoCRM молча вырезает из имени элемента — используем текст
+
+
+def _natural_sort_key(group):
+    """Tier 1, Tier 2, Tier 10 — сортировка по номеру в теге/названии, если
+    он есть, иначе по алфавиту (после всех нумерованных)."""
+    label = group.get('tag') or group.get('name') or ''
+    m = re.search(r'\d+', label)
+    if m:
+        return (0, int(m.group()), label)
+    return (1, 0, label)
+
 
 def list_groups():
     """Группы с добавленным по каждому сотруднику `count` — фактическим
     числом выданных лидов в текущем месяце ИМЕННО ПО ЭТОЙ группе (рядом с
     лимитом на экране настроек). Один сотрудник в разных группах может
-    иметь разный count — счётчики теперь per-группа, не общие на менеджера."""
+    иметь разный count — счётчики теперь per-группа, не общие на менеджера.
+    Удалённые группы (см. DELETED_MARKER) не возвращаются. Остальные —
+    отсортированы по номеру в теге (Tier 1, Tier 2, Tier 3, …)."""
     _require_config()
-    groups = _load_groups()
+    groups = [g for g in _load_groups() if not (g.get('name') or '').startswith(DELETED_MARKER)]
     month_str = _current_month_msk()
     counters = amocrm.fetch_catalog_elements(CATALOG_COUNTERS_ID)
     count_by_user_group = {}
@@ -282,16 +511,40 @@ def list_groups():
     for g in groups:
         for m in g['members']:
             m['count'] = count_by_user_group.get((str(m.get('user_id')), str(g['id'])), 0)
+    groups.sort(key=_natural_sort_key)
     return groups
 
 
-def save_groups(groups_payload):
+def delete_group(group_id, admin_name=None):
+    """«Удаляет» группу (см. DELETED_MARKER — реального удаления в AmoCRM
+    API нет). Группа пропадает из list_groups(), в distribution уже не
+    участвует (active=False снят тоже)."""
+    _require_config()
+    groups = _load_groups()
+    group = next((g for g in groups if g['id'] == group_id), None)
+    if not group:
+        return
+    amocrm.update_catalog_element(
+        CATALOG_GROUPS_ID, group_id,
+        name=DELETED_MARKER + (group.get('name') or ''),
+        custom_fields_values=[
+            amocrm.build_custom_field(FIELD_GROUP_TAG, ''),
+            amocrm.build_custom_field(FIELD_GROUP_MEMBERS, '[]'),
+            amocrm.build_custom_field(FIELD_GROUP_ACTIVE, False),
+        ],
+    )
+    _log_history(admin_name, [f'Удалена группа «{group.get("name")}»'])
+
+
+def save_groups(groups_payload, admin_name=None):
     """Перезаписывает группы из настроечного экрана. Каждый элемент
     `groups_payload` — dict {id (опционально, для новой группы отсутствует),
     name, tag, active, members: [{user_id, limit}]}. Группы с `id` —
     обновляются, без `id` — создаются. Удаление групп через этот вызов не
-    производится (деактивация через `active=False` достаточна для v1)."""
+    производится (деактивация через `active=False` достаточна для v1).
+    Логирует изменения в историю, если реально что-то поменялось."""
     _require_config()
+    old_groups = _load_groups()
     for g in groups_payload:
         members = [
             {'user_id': int(m['user_id']), 'limit': int(m.get('limit', 0))}
@@ -313,6 +566,8 @@ def save_groups(groups_payload):
                 CATALOG_GROUPS_ID, name=g.get('name') or 'Группа', custom_fields_values=cfs
             )
 
+    _log_history(admin_name, _diff_groups(old_groups, groups_payload))
+
 
 def get_status_for_manager(user_id):
     """Только чтение — по КАЖДОЙ группе, в которой состоит менеджер, сколько
@@ -323,7 +578,7 @@ def get_status_for_manager(user_id):
       {'ok': True, 'groups': [
           {'group': ..., 'tag': ..., 'available_leads': N, 'limit': L, 'used': C, 'remaining': L-C},
           ...
-      ]}
+      ], 'cooldown_remaining': N}
       {'ok': False, 'reason': 'not_allowed' | 'funnel_not_configured'}
     """
     _require_config()
@@ -355,7 +610,10 @@ def get_status_for_manager(user_id):
             'remaining': max(0, limit - count),
         })
 
-    return {'ok': True, 'groups': result_groups}
+    runtime = load_runtime_settings()
+    cooldown_remaining = _cooldown_remaining_seconds(user_id, runtime['cooldown_seconds'])
+
+    return {'ok': True, 'groups': result_groups, 'cooldown_remaining': cooldown_remaining}
 
 
 # ─── Основной сценарий ──────────────────────────────────────────────────
@@ -377,6 +635,11 @@ def get_lead_for_manager(user_id):
     _require_config()
 
     with _ASSIGN_LOCK:
+        runtime = load_runtime_settings()
+        cooldown_remaining = _cooldown_remaining_seconds(user_id, runtime['cooldown_seconds'])
+        if cooldown_remaining > 0:
+            return {'ok': False, 'reason': 'cooldown', 'cooldown_remaining': cooldown_remaining}
+
         funnel = _load_funnel_settings()
         if not _funnel_is_configured(funnel):
             return {'ok': False, 'reason': 'funnel_not_configured'}
@@ -402,7 +665,17 @@ def get_lead_for_manager(user_id):
             if not eligible:
                 continue
 
-            lead = eligible[0]  # order[created_at]=asc в fetch_unassigned_leads — старые вперёд
+            # Порядок выбора лида из подходящих: сначала старые (по умолчанию,
+            # candidates уже пришли asc по created_at), сначала новые или
+            # случайный — по настройке администратора.
+            order = runtime['distribution_order']
+            if order == 'newest_first':
+                lead = eligible[-1]
+            elif order == 'random':
+                lead = random.choice(eligible)
+            else:
+                lead = eligible[0]
+
             amocrm.patch_lead(lead['id'], {
                 'responsible_user_id': int(user_id),
                 'pipeline_id': funnel['target_pipeline'],
@@ -416,6 +689,7 @@ def get_lead_for_manager(user_id):
             for contact_id in amocrm.lead_contact_ids(lead):
                 amocrm.patch_contact(contact_id, {'responsible_user_id': int(user_id)})
             _increment_counter(counter_el, count + 1)
+            _set_cooldown_last_claimed(user_id, int(time.time()))
 
             return {
                 'ok': True,

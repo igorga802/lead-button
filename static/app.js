@@ -41,7 +41,14 @@
     amocrm_error: 'Ошибка при обращении к AmoCRM. Попробуйте ещё раз.',
     unknown_user: 'Не удалось определить пользователя.',
     missing_user_id: 'Не удалось определить пользователя.',
+    cooldown: 'Пауза после предыдущего нажатия ещё не закончилась.',
   };
+
+  function formatCountdown(seconds) {
+    var m = Math.floor(seconds / 60);
+    var s = seconds % 60;
+    return m + ':' + (s < 10 ? '0' : '') + s;
+  }
 
   // ─── Страница «Получить лид» ────────────────────────────────────────
   // Кто именно нажимает — сервер уже знает из сессии (вход через OAuth
@@ -53,25 +60,61 @@
 
     var availabilityBox = el('div', { class: 'lb-availability' });
     var status = el('div', { class: 'lb-status' });
+    var countdownTimer = null;
+
+    function stopCountdown() {
+      if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+    }
+
+    function startCountdown(seconds) {
+      stopCountdown();
+      var remaining = seconds;
+      btn.disabled = true;
+      function render() {
+        availabilityBox.innerHTML = '';
+        availabilityBox.appendChild(el('div', {
+          text: 'Кнопка будет доступна через ' + formatCountdown(remaining),
+        }));
+      }
+      render();
+      countdownTimer = setInterval(function () {
+        remaining -= 1;
+        if (remaining <= 0) {
+          stopCountdown();
+          refreshAvailability(); // пауза закончилась — пересчитать реальную доступность
+          return;
+        }
+        render();
+      }, 1000);
+    }
 
     function refreshAvailability() {
       api('/api/status', 'POST').then(function (res) {
         var d = res.data;
-        availabilityBox.innerHTML = '';
-        if (d.ok) {
-          // Менеджеру не показываем разбивку по группам/тирам — только общее
-          // число реально доступных лидов (с учётом остатка лимита).
-          var total = d.groups.reduce(function (sum, g) {
-            return sum + (g.remaining > 0 ? Math.min(g.available_leads, g.remaining) : 0);
-          }, 0);
-          availabilityBox.appendChild(el('div', { text: 'Доступно лидов: ' + total }));
-          btn.disabled = total <= 0;
-        } else {
+        if (!d.ok) {
+          stopCountdown();
+          availabilityBox.innerHTML = '';
           availabilityBox.appendChild(el('div', {
             text: RESULT_MESSAGES[d.error || d.reason] || ('Недоступно (' + (d.error || d.reason) + ').'),
           }));
           btn.disabled = true;
+          return;
         }
+
+        if (d.cooldown_remaining > 0) {
+          startCountdown(d.cooldown_remaining);
+          return;
+        }
+
+        stopCountdown();
+        availabilityBox.innerHTML = '';
+        // Менеджеру не показываем разбивку по группам/тирам — только общее
+        // число реально доступных лидов (с учётом остатка лимита).
+        var total = d.groups.reduce(function (sum, g) {
+          return sum + (g.remaining > 0 ? Math.min(g.available_leads, g.remaining) : 0);
+        }, 0);
+        availabilityBox.appendChild(el('div', { text: 'Доступно лидов: ' + total }));
+        btn.disabled = total <= 0;
       });
     }
 
@@ -176,6 +219,62 @@
     ]);
   }
 
+  // ─── Блок паузы/порядка распределения (только в памяти сервера) ─────
+  function renderRuntimeBox(state) {
+    var cooldownInput = el('input', {
+      type: 'number', min: '0', style: 'width:90px;', value: state.runtime.cooldown_seconds,
+    });
+    cooldownInput.addEventListener('input', function () {
+      state.runtime.cooldown_seconds = parseInt(cooldownInput.value, 10) || 0;
+    });
+
+    var orderSelect = el('select', {});
+    [
+      ['oldest_first', 'Сначала старые'],
+      ['newest_first', 'Сначала новые'],
+      ['random', 'Случайно'],
+    ].forEach(function (pair) {
+      var opt = el('option', { value: pair[0], text: pair[1] });
+      if (pair[0] === state.runtime.distribution_order) opt.selected = true;
+      orderSelect.appendChild(opt);
+    });
+    orderSelect.addEventListener('change', function () {
+      state.runtime.distribution_order = orderSelect.value;
+    });
+
+    return el('div', {}, [
+      el('h2', { text: 'Пауза и порядок распределения' }),
+      el('div', { class: 'lb-runtime-row' }, [
+        el('span', { text: 'Пауза между лидами (сек): ', class: 'lb-label' }),
+        cooldownInput,
+      ]),
+      el('div', { class: 'lb-runtime-row' }, [
+        el('span', { text: 'Порядок распределения: ', class: 'lb-label' }),
+        orderSelect,
+      ]),
+    ]);
+  }
+
+  // ─── Блок истории изменений ──────────────────────────────────────────
+  function renderHistoryBox(history) {
+    var box = el('div', { class: 'lb-history' });
+    if (!history.length) {
+      box.appendChild(el('div', { class: 'lb-history-item', text: 'Изменений пока не было.' }));
+    }
+    history.forEach(function (h) {
+      var d = new Date(h.timestamp * 1000);
+      var dateStr = d.toLocaleString('ru-RU');
+      box.appendChild(el('div', { class: 'lb-history-item' }, [
+        el('div', { class: 'lb-history-meta', text: h.admin_name + ' · ' + dateStr }),
+        el('div', { class: 'lb-history-summary', text: h.summary }),
+      ]));
+    });
+    return el('div', {}, [
+      el('h2', { text: 'История изменений' }),
+      box,
+    ]);
+  }
+
   // ─── Страница настроек (группы + воронка) ───────────────────────────
   function renderSettingsPage(container) {
     container.appendChild(el('div', { text: 'Загрузка…' }));
@@ -191,10 +290,12 @@
 
       var state = {
         groups: res.data.groups, tags: res.data.tags, users: res.data.users,
-        pipelines: res.data.pipelines, funnel: res.data.funnel,
+        pipelines: res.data.pipelines, funnel: res.data.funnel, runtime: res.data.runtime,
       };
 
       container.appendChild(renderFunnelBox(state));
+      container.appendChild(el('hr', {}));
+      container.appendChild(renderRuntimeBox(state));
       container.appendChild(el('hr', {}));
       var groupsBox = el('div', {});
       container.appendChild(groupsBox);
@@ -238,9 +339,13 @@
           });
           limitInput.disabled = !existing;
 
+          // Лимит исчерпан в этом месяце — подсвечиваем тёплым акцентом,
+          // чтобы было видно сразу, без сравнения двух чисел глазами.
+          var limitReached = !!(existing && existing.limit > 0 && existing.count >= existing.limit);
+
           var countLabel = el('span', {
             text: existing && existing.count != null ? '(нажато: ' + existing.count + ')' : '',
-            class: 'lb-count',
+            class: limitReached ? 'lb-count lb-count-limit' : 'lb-count',
           });
 
           checkbox.addEventListener('change', function () {
@@ -257,15 +362,39 @@
             group.members = members;
           }
 
-          usersBox.appendChild(el('div', {}, [
+          usersBox.appendChild(el('div', { class: limitReached ? 'lb-user-limit-reached' : '' }, [
             checkbox, el('span', { text: u.name }), limitInput, countLabel,
           ]));
+        });
+
+        var deleteBtn = el('button', {
+          text: 'Удалить', class: 'lb-secondary', style: 'padding:4px 12px;font-size:12px;',
+          onclick: function () {
+            if (!confirm('Удалить группу «' + (group.name || '(без названия)') + '»? Отменить нельзя.')) return;
+            if (!group.id) {
+              // ещё не сохранённая группа — просто убрать из формы, на сервере её нет
+              state.groups = state.groups.filter(function (g) { return g !== group; });
+              renderGroups();
+              return;
+            }
+            deleteBtn.disabled = true;
+            api('/api/settings/delete-group', 'POST', { group_id: group.id }).then(function (res2) {
+              if (res2.data.ok) {
+                state.groups = state.groups.filter(function (g) { return g !== group; });
+                renderGroups();
+              } else {
+                deleteBtn.disabled = false;
+                alert('Не удалось удалить группу.');
+              }
+            });
+          },
         });
 
         return el('div', { class: 'lb-group' }, [
           el('div', { class: 'lb-group-head' }, [
             nameInput, tagSelect,
             el('label', {}, [activeCheckbox, el('span', { text: 'активна' })]),
+            deleteBtn,
           ]),
           usersBox,
         ]);
@@ -284,18 +413,32 @@
       });
 
       var saveStatus = el('span', { class: 'lb-status', style: 'margin-left:12px;' });
+      var historyBox = el('div', {});
       var saveBtn = el('button', {
         text: 'Сохранить',
         onclick: function () {
           saveStatus.textContent = 'Сохраняю…';
-          api('/api/settings', 'POST', { groups: state.groups, funnel: state.funnel }).then(function (res2) {
+          api('/api/settings', 'POST', {
+            groups: state.groups, funnel: state.funnel, runtime: state.runtime,
+          }).then(function (res2) {
             saveStatus.textContent = res2.data.ok ? 'Сохранено.' : 'Ошибка сохранения.';
+            if (res2.data.ok) refreshHistory();
           });
         },
       });
 
+      function refreshHistory() {
+        api('/api/settings', 'GET').then(function (res3) {
+          historyBox.innerHTML = '';
+          historyBox.appendChild(renderHistoryBox(res3.data.history || []));
+        });
+      }
+
       container.appendChild(addBtn);
       container.appendChild(el('div', {}, [saveBtn, saveStatus]));
+      container.appendChild(el('hr', {}));
+      historyBox.appendChild(renderHistoryBox(res.data.history || []));
+      container.appendChild(historyBox);
     });
   }
 

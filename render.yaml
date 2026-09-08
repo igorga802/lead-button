@@ -52,3 +52,15 @@ services:
         sync: false
       - key: LEAD_BUTTON_FIELD_SETTINGS_SOURCE_RESPONSIBLE
         sync: false
+      - key: LEAD_BUTTON_FIELD_SETTINGS_COOLDOWN_SECONDS
+        sync: false
+      - key: LEAD_BUTTON_FIELD_SETTINGS_DISTRIBUTION_ORDER
+        sync: false
+      - key: LEAD_BUTTON_CATALOG_HISTORY_ID
+        sync: false
+      - key: LEAD_BUTTON_FIELD_HISTORY_TIMESTAMP
+        sync: false
+      - key: LEAD_BUTTON_FIELD_HISTORY_ADMIN_NAME
+        sync: false
+      - key: LEAD_BUTTON_FIELD_HISTORY_SUMMARY
+        sync: false

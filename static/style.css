@@ -7,6 +7,10 @@
   --lb-white: #FFFFFF;
   --lb-border: #E3E3E6;
   --lb-muted: #6B6F7B;
+  --lb-card: #EEEEF1;
+  --lb-limit-bg: #FBEAE6;
+  --lb-limit-border: #E8B4A6;
+  --lb-limit-text: #B24A34;
 }
 
 * { box-sizing: border-box; }
@@ -49,10 +53,10 @@ a { color: var(--lb-dark); }
 
 select, input[type=text], input[type=number] {
   font-family: 'Manrope', Arial, sans-serif;
-  font-size: 14px;
-  padding: 10px 12px;
+  font-size: 13px;
+  padding: 6px 10px;
   border: 1px solid var(--lb-border);
-  border-radius: 10px;
+  border-radius: 8px;
   background: var(--lb-white);
   color: var(--lb-dark);
 }
@@ -81,20 +85,58 @@ button:hover:not(:disabled) { opacity: .9; }
 .lb-availability { margin-top: 16px; font-size: 14px; color: var(--lb-muted); }
 .lb-status { margin-top: 16px; font-size: 14px; }
 
+/* Экран настроек — компактнее: меньше отступов между строками/группами.
+   У каждой группы — тёмная шапка-заголовок в цвет бренда, чтобы группы
+   чётко разделялись между собой визуально. */
 .lb-group {
   border: 1px solid var(--lb-border);
-  border-radius: 14px;
-  padding: 16px;
-  margin-bottom: 14px;
-  background: var(--lb-white);
+  border-radius: 10px;
+  margin-bottom: 10px;
+  background: var(--lb-card);
+  box-shadow: 0 1px 3px rgba(26,30,41,.08);
+  overflow: hidden;
 }
-.lb-group-head { display: flex; gap: 12px; align-items: center; }
-.lb-group-head label { margin-left: auto; font-size: 14px; display: flex; align-items: center; gap: 6px; }
-.lb-users { margin: 10px 0 0 16px; }
-.lb-users > div { margin: 4px 0; font-size: 14px; display: flex; align-items: center; gap: 8px; }
-.lb-count { color: var(--lb-muted); }
+.lb-group-head {
+  display: flex; gap: 8px; align-items: center;
+  background: var(--lb-dark);
+  padding: 7px 10px;
+}
+.lb-group-head label {
+  margin-left: auto; font-size: 13px; display: flex; align-items: center; gap: 4px;
+  color: var(--lb-light);
+}
+.lb-group-head button {
+  background: transparent; color: var(--lb-light); border: 1px solid rgba(249,249,249,.4);
+}
+.lb-users { margin: 6px 10px 8px 12px; }
+.lb-users > div { margin: 3px 0; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+.lb-users > div > span:first-of-type { font-weight: 600; color: var(--lb-dark); min-width: 160px; }
+.lb-count {
+  color: var(--lb-dark); font-weight: 600; font-size: 12px;
+  background: var(--lb-white); border: 1px solid var(--lb-border);
+  border-radius: 20px; padding: 2px 9px;
+}
+/* Лимит исчерпан — тёплый акцент вместо нейтрального бейджа + лёгкая
+   подсветка всей строки сотрудника, чтобы было видно без вчитывания в цифры. */
+.lb-count-limit {
+  color: var(--lb-limit-text);
+  background: var(--lb-limit-bg);
+  border-color: var(--lb-limit-border);
+}
+.lb-user-limit-reached { background: var(--lb-limit-bg); border-radius: 6px; padding: 3px 6px; margin: 2px -6px !important; }
+.lb-user-limit-reached > span:first-of-type { color: var(--lb-limit-text); }
 
-.lb-funnel-row { margin: 8px 0; display: flex; align-items: center; gap: 8px; }
-.lb-funnel-row .lb-label { display: inline-block; width: 190px; font-size: 14px; color: var(--lb-muted); }
+.lb-funnel-row { margin: 3px 0; display: flex; align-items: center; gap: 6px; }
+.lb-funnel-row .lb-label { display: inline-block; width: 190px; font-size: 13px; color: var(--lb-muted); }
+.lb-funnel-row select { width: 200px; }
 
-hr { border: none; border-top: 1px solid var(--lb-border); margin: 24px 0; }
+hr { border: none; border-top: 1px solid var(--lb-border); margin: 14px 0; }
+
+.lb-runtime-row { margin: 3px 0; display: flex; align-items: center; gap: 6px; }
+.lb-runtime-row .lb-label { display: inline-block; width: 190px; font-size: 13px; color: var(--lb-muted); }
+
+.lb-history { max-height: 320px; overflow-y: auto; border: 1px solid var(--lb-border); border-radius: 10px; }
+.lb-history-item { padding: 6px 10px; border-bottom: 1px solid var(--lb-border); font-size: 13px; }
+.lb-history-item:last-child { border-bottom: none; }
+.lb-history-meta { color: var(--lb-muted); font-size: 12px; margin-bottom: 2px; }
+.lb-history-summary { white-space: pre-line; }

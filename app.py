@@ -62,9 +62,14 @@ if not LEAD_BUTTON_ADMIN_PASS:
           'DO NOT use this in production.')
 
 
+_LOCAL_NO_AUTH = os.environ.get('LOCAL_NO_AUTH') == '1'  # только для локальной проверки в браузере, никогда на проде
+
+
 def requires_admin_auth(f):
     @wraps(f)
     def decorated(*args, **kwargs):
+        if _LOCAL_NO_AUTH:
+            return f(*args, **kwargs)
         auth = request.authorization
         ok = False
         if auth:
@@ -219,11 +224,38 @@ def api_settings():
                 ],
                 'pipelines': amocrm.fetch_pipelines(),
                 'funnel': lead_distribution.load_funnel_settings(),
+                'runtime': lead_distribution.load_runtime_settings(),
+                'history': lead_distribution.list_history(),
             })
         payload = request.get_json(silent=True) or {}
-        lead_distribution.save_groups(payload.get('groups', []))
+        # Один общий Basic Auth логин на всех руководителей — различить, кто
+        # именно из них сохранил, всё равно нельзя, поэтому просто "Admin".
+        admin_name = 'Admin'
+        lead_distribution.save_groups(payload.get('groups', []), admin_name)
         if payload.get('funnel'):
-            lead_distribution.save_funnel_settings(payload['funnel'])
+            lead_distribution.save_funnel_settings(payload['funnel'], admin_name)
+        if payload.get('runtime'):
+            lead_distribution.save_runtime_settings(
+                payload['runtime'].get('cooldown_seconds'),
+                payload['runtime'].get('distribution_order'),
+                admin_name,
+            )
+        return jsonify({'ok': True})
+    except lead_distribution.ConfigError as e:
+        return jsonify({'ok': False, 'error': 'not_configured', 'detail': str(e)}), 503
+    except amocrm.AmoCRMError as e:
+        return jsonify({'ok': False, 'error': 'amocrm_error', 'detail': str(e)}), 502
+
+
+@app.route('/api/settings/delete-group', methods=['POST'])
+@requires_admin_auth
+def api_delete_group():
+    payload = request.get_json(silent=True) or {}
+    group_id = payload.get('group_id')
+    if not group_id:
+        return jsonify({'ok': False, 'error': 'missing_group_id'}), 400
+    try:
+        lead_distribution.delete_group(int(group_id), 'Admin')
         return jsonify({'ok': True})
     except lead_distribution.ConfigError as e:
         return jsonify({'ok': False, 'error': 'not_configured', 'detail': str(e)}), 503

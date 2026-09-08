@@ -14,6 +14,7 @@ import amocrm
 GROUPS_NAME = 'Распределение: группы'
 COUNTERS_NAME = 'Распределение: счётчики'
 SETTINGS_NAME = 'Распределение: настройки'
+HISTORY_NAME = 'Распределение: история'
 
 # Поля товарного шаблона, которые AmoCRM в этом аккаунте автоматически вешает
 # на любой новый список, даже если он не для товаров — не нужны нам, удаляем.
@@ -73,6 +74,7 @@ if __name__ == '__main__':
     print(f'Настраиваю «{COUNTERS_NAME}»…')
     counters_id, cf = ensure_catalog(existing, COUNTERS_NAME, [
         {'name': 'user_id', 'type': 'text'},
+        {'name': 'group_id', 'type': 'text'},
         {'name': 'Месяц', 'type': 'text'},
         {'name': 'Количество', 'type': 'numeric'},
     ])
@@ -83,6 +85,16 @@ if __name__ == '__main__':
         {'name': 'Этап-источник', 'type': 'numeric'},
         {'name': 'Воронка-назначение', 'type': 'numeric'},
         {'name': 'Этап-назначение', 'type': 'numeric'},
+        {'name': 'Забирать у ответственного', 'type': 'numeric'},
+        {'name': 'Пауза между лидами (сек)', 'type': 'numeric'},
+        {'name': 'Порядок распределения', 'type': 'text'},
+    ])
+
+    print(f'Настраиваю «{HISTORY_NAME}»…')
+    history_id, hf = ensure_catalog(existing, HISTORY_NAME, [
+        {'name': 'timestamp', 'type': 'numeric'},
+        {'name': 'admin_name', 'type': 'text'},
+        {'name': 'change_summary', 'type': 'textarea'},
     ])
 
     print('\nГотово. Добавь/обнови в .env:\n')
@@ -92,6 +104,7 @@ if __name__ == '__main__':
     print(f'LEAD_BUTTON_FIELD_GROUP_ACTIVE={gf["Активна"]}')
     print(f'LEAD_BUTTON_CATALOG_COUNTERS_ID={counters_id}')
     print(f'LEAD_BUTTON_FIELD_COUNTER_USER_ID={cf["user_id"]}')
+    print(f'LEAD_BUTTON_FIELD_COUNTER_GROUP_ID={cf["group_id"]}')
     print(f'LEAD_BUTTON_FIELD_COUNTER_MONTH={cf["Месяц"]}')
     print(f'LEAD_BUTTON_FIELD_COUNTER_COUNT={cf["Количество"]}')
     print(f'LEAD_BUTTON_CATALOG_SETTINGS_ID={settings_id}')
@@ -99,3 +112,10 @@ if __name__ == '__main__':
     print(f'LEAD_BUTTON_FIELD_SETTINGS_SOURCE_STATUS={sf["Этап-источник"]}')
     print(f'LEAD_BUTTON_FIELD_SETTINGS_TARGET_PIPELINE={sf["Воронка-назначение"]}')
     print(f'LEAD_BUTTON_FIELD_SETTINGS_TARGET_STATUS={sf["Этап-назначение"]}')
+    print(f'LEAD_BUTTON_FIELD_SETTINGS_SOURCE_RESPONSIBLE={sf["Забирать у ответственного"]}')
+    print(f'LEAD_BUTTON_FIELD_SETTINGS_COOLDOWN_SECONDS={sf["Пауза между лидами (сек)"]}')
+    print(f'LEAD_BUTTON_FIELD_SETTINGS_DISTRIBUTION_ORDER={sf["Порядок распределения"]}')
+    print(f'LEAD_BUTTON_CATALOG_HISTORY_ID={history_id}')
+    print(f'LEAD_BUTTON_FIELD_HISTORY_TIMESTAMP={hf["timestamp"]}')
+    print(f'LEAD_BUTTON_FIELD_HISTORY_ADMIN_NAME={hf["admin_name"]}')
+    print(f'LEAD_BUTTON_FIELD_HISTORY_SUMMARY={hf["change_summary"]}')
