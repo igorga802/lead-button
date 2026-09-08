@@ -5,17 +5,21 @@
 <title>Настройки — ETALIST</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&subset=latin,cyrillic" rel="stylesheet">
-<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ asset_version }}">
 </head>
 <body>
   <div class="lb-header"><img src="{{ url_for('static', filename='logo.png') }}" alt="ETALIST"></div>
   <div class="lb-container wide">
-    <p><a href="/">← Назад к кнопке</a></p>
-    <h1>Настройки распределения</h1>
-    <div id="app"></div>
+    <div class="lb-page-card">
+      <p class="lb-eyebrow">Распределение лидов</p>
+      <h1 class="lb-title">Настройки</h1>
+      <p class="lb-login-line"><a href="/">← Назад к кнопке</a></p>
+      <hr class="lb-accent-rule">
+      <div id="app"></div>
+    </div>
   </div>
 
-  <script src="{{ url_for('static', filename='app.js') }}"></script>
+  <script src="{{ url_for('static', filename='app.js') }}?v={{ asset_version }}"></script>
   <script>
     LeadButton.renderSettingsPage(document.getElementById('app'));
   </script>

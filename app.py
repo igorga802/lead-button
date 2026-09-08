@@ -22,6 +22,7 @@
 """
 import os
 import secrets
+import time
 from functools import wraps
 
 from dotenv import load_dotenv
@@ -33,6 +34,17 @@ import amocrm
 import lead_distribution
 
 app = Flask(__name__)
+
+# Метка времени запуска процесса — используется как versioning-параметр для
+# static/style.css и static/app.js (?v=...), чтобы браузер не отдавал
+# закешированную версию после правок: новый деплой/рестарт = новый процесс =
+# новое значение = кеш сам инвалидируется.
+_ASSET_VERSION = str(int(time.time()))
+
+
+@app.context_processor
+def _inject_asset_version():
+    return {'asset_version': _ASSET_VERSION}
 
 app.secret_key = os.environ.get('FLASK_SECRET_KEY')
 if not app.secret_key:
@@ -86,10 +98,24 @@ def requires_admin_auth(f):
     return decorated
 
 
+def _dev_auto_login():
+    """Только для LOCAL_NO_AUTH: логинит первого попавшегося активного
+    сотрудника (предпочтительно Фокину Анну — на ней есть тестовые данные),
+    чтобы можно было открыть страницу менеджера в браузере без реального
+    OAuth-входа в AmoCRM."""
+    users = amocrm.fetch_active_users()
+    target = next((u for u in users if 'Фокина' in (u.get('name') or '')), None) or (users[0] if users else None)
+    if target:
+        session['user_id'] = target['id']
+        session['user_name'] = target.get('name')
+
+
 def requires_login(f):
     """Для страниц (GET) — редирект на /login. Для API (не-GET) — 401 JSON."""
     @wraps(f)
     def decorated(*args, **kwargs):
+        if not session.get('user_id') and _LOCAL_NO_AUTH:
+            _dev_auto_login()
         if not session.get('user_id'):
             if request.method == 'GET':
                 return redirect('/login')

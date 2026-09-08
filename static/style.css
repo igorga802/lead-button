@@ -11,6 +11,7 @@
   --lb-limit-bg: #FBEAE6;
   --lb-limit-border: #E8B4A6;
   --lb-limit-text: #B24A34;
+  --lb-accent: #8A6A2F;
 }
 
 * { box-sizing: border-box; }
@@ -25,9 +26,9 @@ body {
 
 .lb-header {
   background: var(--lb-dark);
-  padding: 20px 24px;
+  padding: 24px 0;
   display: flex;
-  align-items: center;
+  justify-content: center;
 }
 .lb-header img { height: 32px; display: block; }
 
@@ -44,9 +45,14 @@ h1 {
   margin: 0 0 24px;
 }
 h2 {
-  font-size: 15px;
-  font-weight: 600;
-  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--lb-muted);
+  margin: 0 0 16px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--lb-border);
 }
 
 a { color: var(--lb-dark); }
@@ -77,44 +83,84 @@ button:hover:not(:disabled) { opacity: .9; }
 
 .lb-secondary {
   background: transparent;
-  color: var(--lb-dark);
+  color: var(--lb-muted);
   border: 1px solid var(--lb-border);
 }
+.lb-secondary:hover:not(:disabled) { color: var(--lb-dark); border-color: var(--lb-dark); opacity: 1; }
 
 .lb-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .lb-availability { margin-top: 16px; font-size: 14px; color: var(--lb-muted); }
 .lb-status { margin-top: 16px; font-size: 14px; }
 
-/* Экран настроек — компактнее: меньше отступов между строками/группами.
-   У каждой группы — тёмная шапка-заголовок в цвет бренда, чтобы группы
-   чётко разделялись между собой визуально. */
+/* Экран настроек — «Тихий люкс»: та же светлая, воздушная логика, что и на
+   экране менеджера. Каждый раздел — тонированная панель с точкой-маркером
+   перед подписью, чтобы разделы чётко читались на длинной странице; группы —
+   карточки с акцентной бронзовой полосой слева и тегом-бейджем, а не
+   блёклым текстом в выпадающем списке. */
+.lb-section { margin-bottom: 20px; }
+.lb-section:last-child { margin-bottom: 0; }
+
+.lb-panel {
+  background: var(--lb-light);
+  border: 1px solid var(--lb-border);
+  border-radius: 14px;
+  padding: 22px 24px;
+}
+.lb-panel h2 {
+  display: flex; align-items: center; gap: 9px;
+  font-size: 13px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase;
+  color: var(--lb-dark); margin: 0 0 18px; padding-bottom: 0; border-bottom: none;
+}
+.lb-panel h2::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--lb-accent); flex-shrink: 0; }
+
 .lb-group {
   border: 1px solid var(--lb-border);
+  border-left: 4px solid var(--lb-accent);
   border-radius: 10px;
-  margin-bottom: 10px;
-  background: var(--lb-card);
-  box-shadow: 0 1px 3px rgba(26,30,41,.08);
+  margin-bottom: 14px;
+  background: var(--lb-white);
   overflow: hidden;
 }
+.lb-group:last-child { margin-bottom: 0; }
 .lb-group-head {
-  display: flex; gap: 8px; align-items: center;
-  background: var(--lb-dark);
-  padding: 7px 10px;
+  display: flex; gap: 12px; align-items: center; flex-wrap: wrap; row-gap: 8px;
+  background: var(--lb-light);
+  border-bottom: 1px solid var(--lb-border);
+  padding: 12px 16px;
+}
+.lb-group-toggle {
+  width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0; padding: 0;
+  border: 1px solid var(--lb-border); background: var(--lb-white); color: var(--lb-muted);
+  font-size: 11px; display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.lb-group-toggle:hover { border-color: var(--lb-accent); color: var(--lb-accent); }
+.lb-group-head input[type=text] {
+  border: 1px solid transparent; background: transparent; font-weight: 800; font-size: 16px;
+  color: var(--lb-dark); padding: 4px 4px 4px 0; width: 140px; min-width: 80px;
+}
+.lb-group-head input[type=text]:focus { outline: none; border-bottom: 1px solid var(--lb-accent); }
+.lb-group-head select {
+  border: none; background: var(--lb-accent); color: #fff;
+  border-radius: 20px; padding: 5px 12px; font-weight: 800; font-size: 10.5px;
+  letter-spacing: .03em; text-transform: uppercase;
+  width: 108px; flex-shrink: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .lb-group-head label {
-  margin-left: auto; font-size: 13px; display: flex; align-items: center; gap: 4px;
-  color: var(--lb-light);
+  margin-left: auto; font-size: 12.5px; display: flex; align-items: center; gap: 5px;
+  color: var(--lb-muted); flex-shrink: 0;
 }
 .lb-group-head button {
-  background: transparent; color: var(--lb-light); border: 1px solid rgba(249,249,249,.4);
+  padding: 5px 14px; font-size: 12px; flex-shrink: 0;
 }
-.lb-users { margin: 6px 10px 8px 12px; }
-.lb-users > div { margin: 3px 0; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+.lb-users { margin: 10px 16px 12px; }
+.lb-users > div { margin: 4px 0; font-size: 13px; display: flex; align-items: center; gap: 8px; }
 .lb-users > div > span:first-of-type { font-weight: 600; color: var(--lb-dark); min-width: 160px; }
 .lb-count {
   color: var(--lb-dark); font-weight: 600; font-size: 12px;
-  background: var(--lb-white); border: 1px solid var(--lb-border);
+  background: var(--lb-light); border: 1px solid var(--lb-border);
   border-radius: 20px; padding: 2px 9px;
+  font-variant-numeric: tabular-nums;
 }
 /* Лимит исчерпан — тёплый акцент вместо нейтрального бейджа + лёгкая
    подсветка всей строки сотрудника, чтобы было видно без вчитывания в цифры. */
@@ -126,17 +172,76 @@ button:hover:not(:disabled) { opacity: .9; }
 .lb-user-limit-reached { background: var(--lb-limit-bg); border-radius: 6px; padding: 3px 6px; margin: 2px -6px !important; }
 .lb-user-limit-reached > span:first-of-type { color: var(--lb-limit-text); }
 
-.lb-funnel-row { margin: 3px 0; display: flex; align-items: center; gap: 6px; }
-.lb-funnel-row .lb-label { display: inline-block; width: 190px; font-size: 13px; color: var(--lb-muted); }
-.lb-funnel-row select { width: 200px; }
+/* Грид, а не флекс с фиксированной шириной подписи: так поле справа всегда
+   начинается ровно в одной и той же колонке независимо от того, переносится
+   ли подпись на вторую строку — не «съезжает» между строками формы. */
+.lb-funnel-row {
+  display: grid; grid-template-columns: 190px 1fr; column-gap: 6px; align-items: center;
+  margin: 6px 0;
+}
+.lb-funnel-row .lb-label { font-size: 13px; color: var(--lb-muted); }
+/* Фиксированная сетка из двух колонок вместо flex-grow: правый край строки
+   с одним select'ом (Забирать у ответственного) всегда совпадает с правым
+   краем пары select'ов сверху/снизу — тот select просто растянут на обе
+   колонки (grid-column: 1 / -1), а не «дорастает» до нужной ширины сам. */
+.lb-funnel-value { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 6px; }
+.lb-funnel-value select { width: 100%; min-width: 0; }
+.lb-funnel-value.lb-funnel-value-single select { grid-column: 1 / -1; }
 
 hr { border: none; border-top: 1px solid var(--lb-border); margin: 14px 0; }
 
-.lb-runtime-row { margin: 3px 0; display: flex; align-items: center; gap: 6px; }
-.lb-runtime-row .lb-label { display: inline-block; width: 190px; font-size: 13px; color: var(--lb-muted); }
+.lb-runtime-row {
+  display: grid; grid-template-columns: 190px 1fr; column-gap: 6px; align-items: center;
+  margin: 6px 0;
+}
+.lb-runtime-row .lb-label { font-size: 13px; color: var(--lb-muted); }
 
-.lb-history { max-height: 320px; overflow-y: auto; border: 1px solid var(--lb-border); border-radius: 10px; }
-.lb-history-item { padding: 6px 10px; border-bottom: 1px solid var(--lb-border); font-size: 13px; }
+.lb-history { max-height: 320px; overflow-y: auto; border: 1px solid var(--lb-border); border-radius: 12px; }
+.lb-history-item { padding: 10px 14px; border-bottom: 1px solid var(--lb-border); font-size: 13px; }
 .lb-history-item:last-child { border-bottom: none; }
-.lb-history-meta { color: var(--lb-muted); font-size: 12px; margin-bottom: 2px; }
+.lb-history-meta { color: var(--lb-muted); font-size: 12px; margin-bottom: 3px; font-variant-numeric: tabular-nums; }
 .lb-history-summary { white-space: pre-line; }
+
+.lb-save-row { display: flex; align-items: center; gap: 14px; }
+.lb-save-status { font-size: 13px; color: var(--lb-muted); }
+.lb-save-status.is-ok { color: var(--lb-accent); font-weight: 700; }
+
+/* Экран «Получить лид» — «Тихий люкс»: светлая карточка, много воздуха,
+   тонкая бронзовая линия-акцент и такого же цвета крупная цифра счётчика. */
+.lb-page-card {
+  background: var(--lb-white);
+  border: 1px solid var(--lb-border);
+  border-radius: 16px;
+  padding: 40px 36px 36px;
+  box-shadow: 0 1px 2px rgba(26,30,41,.04), 0 20px 44px -28px rgba(26,30,41,.22);
+}
+.lb-eyebrow {
+  font-size: 10.5px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase;
+  color: var(--lb-accent); margin: 0 0 14px;
+}
+.lb-title { font-size: 24px; font-weight: 800; letter-spacing: -0.01em; margin: 0 0 6px; }
+.lb-login-line { font-size: 13px; color: var(--lb-muted); margin: 0 0 28px; }
+.lb-login-line strong { color: var(--lb-dark); font-weight: 700; }
+.lb-login-line a { color: var(--lb-accent); text-decoration: none; border-bottom: 1px solid rgba(138,106,47,.4); }
+.lb-accent-rule { border: none; border-top: 2px solid var(--lb-accent); width: 40px; margin: 0 0 28px; }
+
+.lb-stat-row { display: flex; align-items: baseline; gap: 10px; margin-bottom: 28px; }
+.lb-stat-num { font-size: 40px; font-weight: 800; color: var(--lb-dark); line-height: 1; font-variant-numeric: tabular-nums; }
+.lb-stat-label { font-size: 12.5px; color: var(--lb-muted); text-transform: uppercase; letter-spacing: .06em; }
+
+.lb-wait-row { font-size: 14px; color: var(--lb-muted); margin-bottom: 28px; }
+.lb-wait-row strong { color: var(--lb-dark); font-variant-numeric: tabular-nums; }
+
+.lb-note { font-size: 14px; color: var(--lb-muted); margin-bottom: 28px; }
+
+.lb-btn-lg { padding: 15px 38px; }
+
+.lb-result { margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--lb-border); display: flex; align-items: flex-start; gap: 12px; }
+.lb-result-icon {
+  width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0; margin-top: 1px;
+  border: 1.5px solid var(--lb-accent); color: var(--lb-accent);
+  display: flex; align-items: center; justify-content: center; font-size: 12px;
+}
+.lb-result-icon.is-error { border-color: var(--lb-limit-text); color: var(--lb-limit-text); }
+.lb-result-text { font-size: 14px; color: var(--lb-dark); line-height: 1.5; }
+.lb-result-text a { color: var(--lb-dark); font-weight: 700; text-decoration: none; border-bottom: 1px solid var(--lb-accent); }

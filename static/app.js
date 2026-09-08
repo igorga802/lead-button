@@ -50,20 +50,42 @@
     return m + ':' + (s < 10 ? '0' : '') + s;
   }
 
+  function pluralLeads(n) {
+    var mod100 = Math.abs(n) % 100;
+    var mod10 = mod100 % 10;
+    if (mod100 > 10 && mod100 < 20) return 'лидов';
+    if (mod10 > 1 && mod10 < 5) return 'лида';
+    if (mod10 === 1) return 'лид';
+    return 'лидов';
+  }
+
   // ─── Страница «Получить лид» ────────────────────────────────────────
   // Кто именно нажимает — сервер уже знает из сессии (вход через OAuth
   // AmoCRM на /login), поэтому здесь никакого выбора пользователя и
   // никакого user_id в запросах — только сам факт клика.
   function renderGetLeadPage(container) {
-    var btn = el('button', { text: 'Получить лид' });
+    var btn = el('button', { text: 'Получить лид', class: 'lb-btn-lg' });
     btn.disabled = true; // включится после того, как узнаем статус
 
-    var availabilityBox = el('div', { class: 'lb-availability' });
-    var status = el('div', { class: 'lb-status' });
+    var availabilityBox = el('div', {});
+    var status = el('div', {});
     var countdownTimer = null;
 
     function stopCountdown() {
       if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+    }
+
+    function renderStat(n) {
+      availabilityBox.innerHTML = '';
+      availabilityBox.appendChild(el('div', { class: 'lb-stat-row' }, [
+        el('span', { class: 'lb-stat-num', text: String(n) }),
+        el('span', { class: 'lb-stat-label', text: pluralLeads(n) + ' доступно' }),
+      ]));
+    }
+
+    function renderNote(text) {
+      availabilityBox.innerHTML = '';
+      availabilityBox.appendChild(el('div', { class: 'lb-note', text: text }));
     }
 
     function startCountdown(seconds) {
@@ -72,9 +94,10 @@
       btn.disabled = true;
       function render() {
         availabilityBox.innerHTML = '';
-        availabilityBox.appendChild(el('div', {
-          text: 'Кнопка будет доступна через ' + formatCountdown(remaining),
-        }));
+        availabilityBox.appendChild(el('div', { class: 'lb-wait-row' }, [
+          el('span', { text: 'Кнопка будет доступна через ' }),
+          el('strong', { text: formatCountdown(remaining) }),
+        ]));
       }
       render();
       countdownTimer = setInterval(function () {
@@ -93,10 +116,7 @@
         var d = res.data;
         if (!d.ok) {
           stopCountdown();
-          availabilityBox.innerHTML = '';
-          availabilityBox.appendChild(el('div', {
-            text: RESULT_MESSAGES[d.error || d.reason] || ('Недоступно (' + (d.error || d.reason) + ').'),
-          }));
+          renderNote(RESULT_MESSAGES[d.error || d.reason] || ('Недоступно (' + (d.error || d.reason) + ').'));
           btn.disabled = true;
           return;
         }
@@ -107,13 +127,12 @@
         }
 
         stopCountdown();
-        availabilityBox.innerHTML = '';
         // Менеджеру не показываем разбивку по группам/тирам — только общее
         // число реально доступных лидов (с учётом остатка лимита).
         var total = d.groups.reduce(function (sum, g) {
           return sum + (g.remaining > 0 ? Math.min(g.available_leads, g.remaining) : 0);
         }, 0);
-        availabilityBox.appendChild(el('div', { text: 'Доступно лидов: ' + total }));
+        renderStat(total);
         btn.disabled = total <= 0;
       });
     }
@@ -122,36 +141,50 @@
 
     btn.addEventListener('click', function () {
       btn.disabled = true;
-      status.textContent = 'Запрашиваю…';
+      status.innerHTML = '';
+      status.appendChild(el('div', { class: 'lb-note', text: 'Запрашиваю…' }));
       api('/api/get-lead', 'POST')
         .then(function (res) {
           var d = res.data;
+          status.innerHTML = '';
           if (d.ok) {
-            status.innerHTML = '';
-            status.appendChild(el('span', { text: 'Вам назначен лид ' }));
+            var link;
             if (d.lead_url) {
-              status.appendChild(el('a', {
+              link = el('a', {
                 text: d.lead_name || ('#' + d.lead_id), href: d.lead_url, target: '_blank', rel: 'noopener',
-              }));
+              });
             } else {
-              status.appendChild(el('strong', { text: d.lead_name || ('#' + d.lead_id) }));
+              link = el('strong', { text: d.lead_name || ('#' + d.lead_id) });
             }
-            status.appendChild(el('span', { text: '.' }));
+            status.appendChild(el('div', { class: 'lb-result' }, [
+              el('span', { class: 'lb-result-icon', text: '✓' }),
+              el('span', { class: 'lb-result-text' }, [
+                el('span', { text: 'Вам назначен лид ' }), link, el('span', { text: '.' }),
+              ]),
+            ]));
           } else {
-            status.textContent = RESULT_MESSAGES[d.error || d.reason] ||
+            var msg = RESULT_MESSAGES[d.error || d.reason] ||
               ('Не удалось получить лид (' + (d.error || d.reason) + ').');
+            status.appendChild(el('div', { class: 'lb-result' }, [
+              el('span', { class: 'lb-result-icon is-error', text: '!' }),
+              el('span', { class: 'lb-result-text', text: msg }),
+            ]));
           }
         })
         .catch(function () {
-          status.textContent = 'Не удалось связаться с сервером. Попробуйте позже.';
+          status.innerHTML = '';
+          status.appendChild(el('div', { class: 'lb-result' }, [
+            el('span', { class: 'lb-result-icon is-error', text: '!' }),
+            el('span', { class: 'lb-result-text', text: 'Не удалось связаться с сервером. Попробуйте позже.' }),
+          ]));
         })
         .finally(function () {
           refreshAvailability(); // обновить счётчики после попытки, кнопка сама включится/выключится
         });
     });
 
-    container.appendChild(el('div', { class: 'lb-row' }, [btn]));
     container.appendChild(availabilityBox);
+    container.appendChild(el('div', { class: 'lb-row' }, [btn]));
     container.appendChild(status);
   }
 
@@ -192,7 +225,7 @@
 
       return el('div', { class: 'lb-funnel-row' }, [
         el('span', { text: label + ': ', class: 'lb-label' }),
-        pipelineSelect, statusSelect,
+        el('div', { class: 'lb-funnel-value' }, [pipelineSelect, statusSelect]),
       ]);
     }
 
@@ -208,10 +241,10 @@
     });
     var responsibleRow = el('div', { class: 'lb-funnel-row' }, [
       el('span', { text: 'Забирать у ответственного: ', class: 'lb-label' }),
-      responsibleSelect,
+      el('div', { class: 'lb-funnel-value lb-funnel-value-single' }, [responsibleSelect]),
     ]);
 
-    return el('div', {}, [
+    return el('div', { class: 'lb-panel' }, [
       el('h2', { text: 'Воронка и этапы' }),
       pipelinePicker('source_pipeline', 'source_status', 'Источник (откуда берём)'),
       responsibleRow,
@@ -242,7 +275,7 @@
       state.runtime.distribution_order = orderSelect.value;
     });
 
-    return el('div', {}, [
+    return el('div', { class: 'lb-panel' }, [
       el('h2', { text: 'Пауза и порядок распределения' }),
       el('div', { class: 'lb-runtime-row' }, [
         el('span', { text: 'Пауза между лидами (сек): ', class: 'lb-label' }),
@@ -269,7 +302,7 @@
         el('div', { class: 'lb-history-summary', text: h.summary }),
       ]));
     });
-    return el('div', {}, [
+    return el('div', { class: 'lb-panel' }, [
       el('h2', { text: 'История изменений' }),
       box,
     ]);
@@ -293,12 +326,18 @@
         pipelines: res.data.pipelines, funnel: res.data.funnel, runtime: res.data.runtime,
       };
 
-      container.appendChild(renderFunnelBox(state));
-      container.appendChild(el('hr', {}));
-      container.appendChild(renderRuntimeBox(state));
-      container.appendChild(el('hr', {}));
+      container.appendChild(el('div', { class: 'lb-section' }, [renderFunnelBox(state)]));
+      container.appendChild(el('div', { class: 'lb-section' }, [renderRuntimeBox(state)]));
+      var groupsPanel = el('div', { class: 'lb-panel' });
+      container.appendChild(el('div', { class: 'lb-section' }, [groupsPanel]));
+      groupsPanel.appendChild(el('h2', { text: 'Группы менеджеров' }));
       var groupsBox = el('div', {});
-      container.appendChild(groupsBox);
+      groupsPanel.appendChild(groupsBox);
+      var groupsSection = groupsPanel;
+
+      // Свёрнуто/развёрнуто — только на клиенте, не уходит на сервер и не
+      // трогает данные группы (WeakMap ключом на сам объект group).
+      var collapsedGroups = new WeakMap();
 
       function renderGroups() {
         groupsBox.innerHTML = '';
@@ -367,6 +406,19 @@
           ]));
         });
 
+        var toggleBtn = el('button', { class: 'lb-group-toggle', type: 'button' });
+        function applyCollapsed() {
+          var collapsed = !!collapsedGroups.get(group);
+          usersBox.style.display = collapsed ? 'none' : '';
+          toggleBtn.textContent = collapsed ? '▸' : '▾';
+          toggleBtn.setAttribute('aria-label', collapsed ? 'Развернуть группу' : 'Свернуть группу');
+        }
+        toggleBtn.addEventListener('click', function () {
+          collapsedGroups.set(group, !collapsedGroups.get(group));
+          applyCollapsed();
+        });
+        applyCollapsed();
+
         var deleteBtn = el('button', {
           text: 'Удалить', class: 'lb-secondary', style: 'padding:4px 12px;font-size:12px;',
           onclick: function () {
@@ -392,7 +444,7 @@
 
         return el('div', { class: 'lb-group' }, [
           el('div', { class: 'lb-group-head' }, [
-            nameInput, tagSelect,
+            toggleBtn, nameInput, tagSelect,
             el('label', {}, [activeCheckbox, el('span', { text: 'активна' })]),
             deleteBtn,
           ]),
@@ -411,17 +463,20 @@
           renderGroups();
         },
       });
+      groupsSection.appendChild(addBtn);
 
-      var saveStatus = el('span', { class: 'lb-status', style: 'margin-left:12px;' });
+      var saveStatus = el('span', { class: 'lb-save-status' });
       var historyBox = el('div', {});
       var saveBtn = el('button', {
-        text: 'Сохранить',
+        text: 'Сохранить', class: 'lb-btn-lg',
         onclick: function () {
           saveStatus.textContent = 'Сохраняю…';
+          saveStatus.className = 'lb-save-status';
           api('/api/settings', 'POST', {
             groups: state.groups, funnel: state.funnel, runtime: state.runtime,
           }).then(function (res2) {
             saveStatus.textContent = res2.data.ok ? 'Сохранено.' : 'Ошибка сохранения.';
+            saveStatus.className = res2.data.ok ? 'lb-save-status is-ok' : 'lb-save-status';
             if (res2.data.ok) refreshHistory();
           });
         },
@@ -434,11 +489,12 @@
         });
       }
 
-      container.appendChild(addBtn);
-      container.appendChild(el('div', {}, [saveBtn, saveStatus]));
-      container.appendChild(el('hr', {}));
+      container.appendChild(el('div', { class: 'lb-section lb-save-row' }, [saveBtn, saveStatus]));
+
+      var historySection = el('div', { class: 'lb-section' });
       historyBox.appendChild(renderHistoryBox(res.data.history || []));
-      container.appendChild(historyBox);
+      historySection.appendChild(historyBox);
+      container.appendChild(historySection);
     });
   }
 
