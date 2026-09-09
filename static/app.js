@@ -339,6 +339,15 @@
       // трогает данные группы (WeakMap ключом на сам объект group).
       var collapsedGroups = new WeakMap();
 
+      // Список групп загружается в память один раз при открытии страницы.
+      // Если сохранять весь state.groups целиком, вкладка, простоявшая
+      // открытой (или открытая параллельно с другой), при сохранении
+      // затирает чужие изменения по группам, которые сама не трогала, своей
+      // устаревшей копией. Поэтому на сервер уходят только группы, реально
+      // изменённые в ЭТОЙ вкладке — остальные сервер не трогает вообще.
+      var dirtyGroups = new WeakSet();
+      function markDirty(group) { dirtyGroups.add(group); }
+
       function renderGroups() {
         groupsBox.innerHTML = '';
         state.groups.forEach(function (group) {
@@ -348,7 +357,7 @@
 
       function renderGroupRow(group) {
         var nameInput = el('input', { type: 'text', value: group.name || '', placeholder: 'Название группы' });
-        nameInput.addEventListener('input', function () { group.name = nameInput.value; });
+        nameInput.addEventListener('input', function () { group.name = nameInput.value; markDirty(group); });
 
         var tagSelect = el('select', {});
         tagSelect.appendChild(el('option', { value: '', text: '— выберите тег —' }));
@@ -357,11 +366,11 @@
           if (tag === group.tag) opt.selected = true;
           tagSelect.appendChild(opt);
         });
-        tagSelect.addEventListener('change', function () { group.tag = tagSelect.value; });
+        tagSelect.addEventListener('change', function () { group.tag = tagSelect.value; markDirty(group); });
 
         var activeCheckbox = el('input', { type: 'checkbox' });
         activeCheckbox.checked = !!group.active;
-        activeCheckbox.addEventListener('change', function () { group.active = activeCheckbox.checked; });
+        activeCheckbox.addEventListener('change', function () { group.active = activeCheckbox.checked; markDirty(group); });
 
         var membersById = {};
         (group.members || []).forEach(function (m) { membersById[m.user_id] = m; });
@@ -399,6 +408,7 @@
               members.push({ user_id: u.id, limit: parseInt(limitInput.value, 10) || 0 });
             }
             group.members = members;
+            markDirty(group);
           }
 
           usersBox.appendChild(el('div', { class: limitReached ? 'lb-user-limit-reached' : '' }, [
@@ -459,7 +469,9 @@
         class: 'lb-secondary',
         style: 'margin-bottom:16px;',
         onclick: function () {
-          state.groups.push({ name: '', tag: '', active: true, members: [] });
+          var newGroup = { name: '', tag: '', active: true, members: [] };
+          state.groups.push(newGroup);
+          markDirty(newGroup);
           renderGroups();
         },
       });
@@ -472,12 +484,19 @@
         onclick: function () {
           saveStatus.textContent = 'Сохраняю…';
           saveStatus.className = 'lb-save-status';
+          // Только реально изменённые в этой вкладке группы — см. markDirty
+          // выше. Нетронутые группы на сервер не уходят вообще, поэтому
+          // устаревшая копия в памяти вкладки не может затереть чужие правки.
+          var changedGroups = state.groups.filter(function (g) { return dirtyGroups.has(g); });
           api('/api/settings', 'POST', {
-            groups: state.groups, funnel: state.funnel, runtime: state.runtime,
+            groups: changedGroups, funnel: state.funnel, runtime: state.runtime,
           }).then(function (res2) {
             saveStatus.textContent = res2.data.ok ? 'Сохранено.' : 'Ошибка сохранения.';
             saveStatus.className = res2.data.ok ? 'lb-save-status is-ok' : 'lb-save-status';
-            if (res2.data.ok) refreshHistory();
+            if (res2.data.ok) {
+              dirtyGroups = new WeakSet();
+              refreshHistory();
+            }
           });
         },
       });
