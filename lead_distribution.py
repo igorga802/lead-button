@@ -629,7 +629,11 @@ def get_lead_for_manager(user_id):
 
     Возвращает dict:
       {'ok': True, 'lead_id': ..., 'lead_name': ..., 'group': ...}
-      {'ok': False, 'reason': 'not_allowed' | 'limit_reached' | 'no_leads', ...}
+      {'ok': False, 'reason': 'not_allowed' | 'overdue_tasks' | 'limit_reached' | 'no_leads', ...}
+    Просроченные задачи блокируют выдачу безусловно (без порогов и исключений
+    по типу задачи): пока у менеджера есть хоть одна просрочка — лид не
+    выдаётся. Если проверить задачи не удалось (сбой AmoCRM) — тоже не
+    выдаём (AmoCRMError уходит наружу), а не выдаём «на авось».
     Кидает ConfigError, если кнопка ещё не настроена (список/поля/воронки).
     """
     _require_config()
@@ -648,6 +652,10 @@ def get_lead_for_manager(user_id):
         user_groups = _find_groups_for_user(groups, user_id)
         if not user_groups:
             return {'ok': False, 'reason': 'not_allowed'}
+
+        overdue = amocrm.fetch_overdue_tasks(user_id)
+        if overdue:
+            return {'ok': False, 'reason': 'overdue_tasks', 'overdue_count': len(overdue)}
 
         month_str = _current_month_msk()
         candidates = amocrm.fetch_unassigned_leads(

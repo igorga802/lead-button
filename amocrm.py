@@ -180,6 +180,39 @@ def delete_catalog_custom_field(catalog_id, field_id):
     return _request(f'/catalogs/{catalog_id}/custom_fields/{field_id}', method='DELETE')
 
 
+def fetch_overdue_tasks(user_id, now=None):
+    """Невыполненные задачи сотрудника, срок которых уже прошёл (любого типа
+    и по любой сущности — исключений нет). Возвращает list[dict].
+
+    Фильтр `complete_till` на стороне AmoCRM не срабатывает (отдаёт все
+    открытые задачи), поэтому просрочку определяем сами по полю
+    `complete_till`. Ответственного и «не выполнена» перепроверяем на нашей
+    стороне тоже — чтобы чужая или закрытая задача не заблокировала выдачу.
+    Любой сбой запроса — AmoCRMError (вызывающий код отказывает в выдаче:
+    не смогли проверить — не выдаём)."""
+    now = int(time.time()) if now is None else now
+    overdue = []
+    page = 1
+    while True:
+        if page > 50:
+            raise AmoCRMError('/tasks → слишком много страниц открытых задач')
+        data = _request('/tasks', {
+            'filter[responsible_user_id][]': user_id,
+            'filter[is_completed]': 0,
+            'limit': API_PAGE_LIMIT,
+            'page': page,
+        })
+        tasks = ((data or {}).get('_embedded') or {}).get('tasks') or []
+        for t in tasks:
+            if (not t.get('is_completed')
+                    and t.get('responsible_user_id') == int(user_id)
+                    and (t.get('complete_till') or 0) < now):
+                overdue.append(t)
+        if len(tasks) < API_PAGE_LIMIT:
+            return overdue
+        page += 1
+
+
 def fetch_catalog_elements(catalog_id, limit=250):
     elements = []
     page = 1

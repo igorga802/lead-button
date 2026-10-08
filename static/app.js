@@ -163,8 +163,11 @@
               ]),
             ]));
           } else {
-            var msg = RESULT_MESSAGES[d.error || d.reason] ||
-              ('Не удалось получить лид (' + (d.error || d.reason) + ').');
+            var msg = d.reason === 'overdue_tasks'
+              ? 'У вас есть просроченные задачи (' + d.overdue_count + '). ' +
+                'Закройте их в AmoCRM — после этого можно будет получить лид.'
+              : RESULT_MESSAGES[d.error || d.reason] ||
+                ('Не удалось получить лид (' + (d.error || d.reason) + ').');
             status.appendChild(el('div', { class: 'lb-result' }, [
               el('span', { class: 'lb-result-icon is-error', text: '!' }),
               el('span', { class: 'lb-result-text', text: msg }),
